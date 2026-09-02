@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+/*
+  Ajo's palette: adire indigo against blue-biased neutrals. Deliberately not
+  the default crypto purple.
+*/
+:root {
+  --bg: #f6f7fb;
+  --surface: #ffffff;
+  --surface-2: #edeff8;
+  --border: #e1e3f0;
+  --ink: #141629;
+  --muted: #5a5e7a;
+  --faint: #8b90ac;
+  --accent: #3a44a8;
+  --accent-ink: #ffffff;
+  --good: #177a57;
+  --good-bg: #e4f3ec;
+  --warn: #a5680e;
+  --warn-bg: #f8efdc;
+  --risk: #a32f2c;
+  --risk-bg: #f9e7e6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1020;
+    --surface: #181b2e;
+    --surface-2: #1f2338;
+    --border: #292d45;
+    --ink: #e9eaf4;
+    --muted: #9aa0be;
+    --faint: #757b9b;
+    --accent: #8e97f0;
+    --accent-ink: #0e1020;
+    --good: #4fcb9b;
+    --good-bg: #14352a;
+    --warn: #e8b04b;
+    --warn-bg: #3a2e14;
+    --risk: #f08a85;
+    --risk-bg: #3a1e1d;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-good: var(--good);
+  --color-good-bg: var(--good-bg);
+  --color-warn: var(--warn);
+  --color-warn-bg: var(--warn-bg);
+  --color-risk: var(--risk);
+  --color-risk-bg: var(--risk-bg);
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display);
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+body {
+  font-family: var(--font-body), system-ui, -apple-system, sans-serif;
+  /* Respect the phone's notch when running full-bleed inside the WebView. */
+  padding-bottom: env(safe-area-inset-bottom);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The WebView happily bounces the whole page otherwise. */
+body {
+  overscroll-behavior-y: none;
+}
