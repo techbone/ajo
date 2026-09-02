@@ -1,36 +1,86 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Ajo
 
-## Getting Started
+**A rotating savings circle on USDT. Nobody holds the money.**
 
-First, run the development server:
+Ten people put in $50 a week. One person takes the whole pot. Then it rotates,
+until everyone has had their turn.
+
+This is ajo — also called esusu, susu, tanda, or chit — a practice several
+hundred million people already use. It works, and it breaks in exactly one
+place: whoever holds the money. Ajo removes that role instead of replacing it.
+
+Built as a [Nimiq Pay Mini App](https://nimiq.dev/mini-apps) for the Mini Apps
+Competition, Cycle II.
+
+## How it works
+
+Contributions move **wallet to wallet** in USDT on Polygon. Ajo never takes
+custody: there is no escrow account, no smart contract holding balances, and no
+treasury. The app's only job is to say who owes what, and to prove who has paid.
+
+If this server disappeared tomorrow, nobody would lose a cent. The worst case is
+that you no longer know whose turn it is — and the chain still records who paid.
+
+1. **Form the circle.** Set the amount and the rhythm, then share a six-character
+   invite code. Everyone sees the full payout order before any money moves.
+2. **Everyone pays the same.** Each round, every member sends the fixed amount
+   directly to that round's recipient.
+3. **One member takes the pot.** Then the turn passes. After the last round,
+   everyone has paid the same amount and been paid once.
+
+The recipient does not contribute during their own round, so each round collects
+`members - 1` payments and every member ends up net zero.
+
+## Verifying payments
+
+Payment confirmation runs on two independent paths that converge on the same
+state, so a contribution is credited exactly once:
+
+- **Fast path** — the app submits the transaction hash, and the server pulls the
+  receipt and decodes the transfer to check the recipient and amount.
+- **Backstop** — a sweep of USDT `Transfer` logs catches payments made outside
+  the app, or ones where the app closed before the write landed.
+
+A unique index on the transaction hash makes double-crediting impossible
+regardless of which path arrives first.
+
+## Stack
+
+| Layer | Choice |
+| --- | --- |
+| App | Next.js (App Router), TypeScript, Tailwind |
+| Chain | `viem` over the injected `window.ethereum` provider |
+| Nimiq | `@nimiq/mini-app-sdk` |
+| Database | Postgres (Neon) with Drizzle |
+| Hosting | Vercel |
+
+Chain reads run server-side rather than through the injected provider. Reading a
+public balance needs no keys and no approval, and the sweep has to run when
+nobody's phone is open.
+
+## Running locally
 
 ```bash
+npm install
+cp .env.example .env.local   # then fill in the values
+npm run db:push              # apply the schema
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+To test inside Nimiq Pay, serve on your LAN and open the address from the app's
+Mini Apps → Custom URL field:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run dev:lan
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Your machine's LAN address must be listed in `allowedDevOrigins` in
+`next.config.ts`, or Next will refuse to serve JavaScript chunks to it and the
+page will load without ever hydrating.
 
-## Learn More
+Note that EVM mini apps always run against mainnet — Nimiq Pay's testnet switch
+affects NIM only — so USDT testing uses real funds. Use small amounts.
 
-To learn more about Next.js, take a look at the following resources:
+## Licence
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT. See [LICENSE](LICENSE).
