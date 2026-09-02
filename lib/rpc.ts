@@ -1,5 +1,5 @@
 import { encodeFunctionData, formatUnits } from 'viem'
-import { ERC20_BALANCE_OF, USDT } from './chain'
+import { ERC20_BALANCE_OF, TRANSFER_TOPIC, USDT } from './chain'
 
 /**
  * Server-side Polygon reads.
@@ -57,4 +57,53 @@ export async function getUsdtBalance(address: string): Promise<string> {
 export async function getNativeBalance(address: string): Promise<string> {
   const raw = await rpcCall<string>('eth_getBalance', [address, 'latest'])
   return formatUnits(toBigInt(raw), 18)
+}
+
+export interface TxReceipt {
+  status: string
+  blockNumber: string
+  from: string
+  to: string | null
+  logs: Array<{ address: string; topics: string[]; data: string }>
+}
+
+export async function getTransactionReceipt(hash: string): Promise<TxReceipt | null> {
+  return rpcCall<TxReceipt | null>('eth_getTransactionReceipt', [hash])
+}
+
+export async function getBlockNumber(): Promise<bigint> {
+  return toBigInt(await rpcCall<string>('eth_blockNumber', []))
+}
+
+export interface RawLog {
+  address: string
+  topics: string[]
+  data: string
+  blockNumber: string
+  transactionHash: string
+}
+
+/**
+ * USDT Transfer logs paid *to* a given set of addresses.
+ *
+ * Filtering on the recipient rather than the sender keeps the query small: a
+ * circle has one recipient per round, but many payers.
+ */
+export async function getTransfersTo(
+  recipients: string[],
+  fromBlock: bigint,
+  toBlock: bigint,
+): Promise<RawLog[]> {
+  if (recipients.length === 0) return []
+
+  const padded = recipients.map((a) => `0x${a.replace(/^0x/, '').toLowerCase().padStart(64, '0')}`)
+
+  return rpcCall<RawLog[]>('eth_getLogs', [
+    {
+      address: USDT.address,
+      fromBlock: `0x${fromBlock.toString(16)}`,
+      toBlock: `0x${toBlock.toString(16)}`,
+      topics: [TRANSFER_TOPIC, null, padded],
+    },
+  ])
 }
