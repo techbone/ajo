@@ -105,21 +105,20 @@ export function AjoProvider({ children }: { children: ReactNode }) {
       setWallets(found)
       setHasProvider(found.length > 0)
 
+      // Only reattach a wallet the person actually chose. A wallet still being
+      // authorised at the extension level is not consent to use it again —
+      // disconnecting clears the stored choice, and reload must respect that
+      // rather than silently reconnecting the only wallet it can find.
       const restored = restoreActiveWallet()
-      if (restored) setActive(restored)
+      if (restored) {
+        setActive(restored)
 
-      // eth_accounts, not eth_requestAccounts — reports the existing connection
-      // without raising a dialog nobody asked for.
-      const provider = restored?.provider ?? (found.length === 1 ? found[0].provider : undefined)
-      if (provider) {
-        const [account] = await getConnectedAccounts(provider)
+        // eth_accounts, not eth_requestAccounts — reports the existing
+        // connection without raising a dialog nobody asked for.
+        const [account] = await getConnectedAccounts(restored.provider)
         if (account) {
-          if (!restored && found.length === 1) {
-            setActiveWallet(found[0])
-            setActive(found[0])
-          }
           setWalletAddress(account.toLowerCase())
-          setChainId(await getChainId(provider).catch(() => null))
+          setChainId(await getChainId(restored.provider).catch(() => null))
         }
       }
 

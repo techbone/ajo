@@ -50,12 +50,13 @@ export function discoverWallets(timeout = 350): Promise<DiscoveredWallet[]> {
 
       // Wallets that predate EIP-6963 (and Nimiq Pay) only use window.ethereum.
       if (found.size === 0 && window.ethereum) {
+        const insideNimiqPay = Boolean(window.nimiqPay)
         found.set('injected', {
           info: {
             uuid: 'injected',
-            name: 'Browser wallet',
+            name: insideNimiqPay ? 'Nimiq Pay' : 'Browser wallet',
             icon: '',
-            rdns: 'injected',
+            rdns: insideNimiqPay ? 'nimiq.pay' : 'injected',
           },
           provider: window.ethereum,
         })

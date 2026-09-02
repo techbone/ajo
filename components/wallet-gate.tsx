@@ -60,13 +60,15 @@ export function WalletGate({ children }: { children: ReactNode }) {
   )
 
   // Nothing chosen yet, and more than one wallet answered discovery.
-  if (!walletAddress && !activeWallet && wallets.length > 1) {
+  if (!walletAddress && !activeWallet && wallets.length > 0) {
     return (
       <div className="flex flex-col gap-4">
         {pitch}
         {notice && <Notice>{notice}</Notice>}
         <div className="flex flex-col gap-2">
-          <p className="text-xs uppercase tracking-widest text-faint">Choose a wallet</p>
+          <p className="text-xs uppercase tracking-widest text-faint">
+            {wallets.length > 1 ? 'Choose a wallet' : 'Connect a wallet'}
+          </p>
           {wallets.map((wallet) => (
             <button
               key={wallet.info.uuid}
