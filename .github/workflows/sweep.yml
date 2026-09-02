@@ -1,0 +1,22 @@
+# Vercel's Hobby plan runs cron once a day, which is far too slow to confirm a
+# payment. GitHub Actions is free on public repos, so it drives the frequent
+# sweep and Vercel's daily cron stays as a backstop.
+name: Sweep contributions
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger sweep
+        run: |
+          code=$(curl -s -o /tmp/out.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.APP_URL }}/api/cron/sweep")
+          cat /tmp/out.json
+          echo
+          test "$code" = "200"

@@ -20,22 +20,53 @@ export function rpcUrl(): string {
   return process.env.POLYGON_RPC_URL || DEFAULT_RPC
 }
 
-export async function rpcCall<T>(method: string, params: unknown[]): Promise<T> {
-  const res = await fetch(rpcUrl(), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-    cache: 'no-store',
-    signal: AbortSignal.timeout(10_000),
-  })
+/** Log scans are much heavier than balance reads and need longer. */
+const TIMEOUTS: Record<string, number> = { eth_getLogs: 25_000 }
+const DEFAULT_TIMEOUT = 12_000
 
-  if (!res.ok) throw new Error(`RPC ${method} failed with HTTP ${res.status}`)
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-  const body = (await res.json()) as { result?: T; error?: { message?: string } }
-  if (body.error) throw new Error(body.error.message ?? `RPC ${method} failed`)
-  if (body.result === undefined) throw new Error(`RPC ${method} returned nothing`)
+/**
+ * A single JSON-RPC call, retried on transient failure.
+ *
+ * Public endpoints throttle aggressively once a sweep makes a run of requests,
+ * and a rate-limited read is a temporary condition, not a reason to abandon the
+ * whole sweep.
+ */
+export async function rpcCall<T>(
+  method: string,
+  params: unknown[],
+  attempts = 3,
+): Promise<T> {
+  let lastError: unknown
 
-  return body.result
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const res = await fetch(rpcUrl(), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+        cache: 'no-store',
+        signal: AbortSignal.timeout(TIMEOUTS[method] ?? DEFAULT_TIMEOUT),
+      })
+
+      if (res.status === 429 || res.status >= 500) {
+        throw new Error(`RPC ${method} rate-limited or unavailable (HTTP ${res.status})`)
+      }
+      if (!res.ok) throw new Error(`RPC ${method} failed with HTTP ${res.status}`)
+
+      const body = (await res.json()) as { result?: T; error?: { message?: string } }
+      if (body.error) throw new Error(body.error.message ?? `RPC ${method} failed`)
+      if (body.result === undefined) throw new Error(`RPC ${method} returned nothing`)
+
+      return body.result
+    } catch (error) {
+      lastError = error
+      if (attempt < attempts) await sleep(400 * 2 ** (attempt - 1))
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(`RPC ${method} failed`)
 }
 
 /** '0x' means the call returned no data; BigInt() would throw on it. */

@@ -173,3 +173,16 @@ export const authNonces = pgTable('auth_nonces', {
   issuedAt: timestamp('issued_at', { withTimezone: true }).notNull(),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
 })
+
+/**
+ * How far the log sweep has scanned.
+ *
+ * Without this the sweep could only look at a fixed recent window, and any
+ * outage longer than that window would silently drop payments. One row, keyed
+ * by chain.
+ */
+export const sweepState = pgTable('sweep_state', {
+  chain: text('chain').primaryKey(),
+  lastBlock: bigint('last_block', { mode: 'bigint' }).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
