@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { use, useCallback, useEffect, useState } from 'react'
 import { WalletBanner } from '@/components/account-bar'
 import { AppShell } from '@/components/app-shell'
+import { RoundView } from '@/components/round-view'
 import { Button, Card, Notice, Pill } from '@/components/ui'
 import { WalletGate } from '@/components/wallet-gate'
 import { getCircle, lockCircle, type CircleDetail } from '@/lib/api-client'
@@ -77,6 +78,8 @@ function CircleView({ id }: { id: string }) {
         </p>
       </div>
 
+      {circle.status === 'active' && <RoundView data={data} onPaid={load} />}
+
       {circle.status === 'forming' && (
         <Card>
           <p className="text-xs uppercase tracking-widest text-faint">Invite code</p>
@@ -90,6 +93,7 @@ function CircleView({ id }: { id: string }) {
         </Card>
       )}
 
+      {circle.status === 'forming' && (
       <Card>
         <p className="text-xs uppercase tracking-widest text-faint">Each round pays out</p>
         <p className="mt-1 text-3xl font-bold tabular-nums">
@@ -100,6 +104,7 @@ function CircleView({ id }: { id: string }) {
           {members.length - 1} times and receives once.
         </p>
       </Card>
+      )}
 
       <section className="flex flex-col gap-2">
         <h2 className="text-xs uppercase tracking-widest text-faint">

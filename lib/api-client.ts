@@ -98,3 +98,22 @@ export async function lockCircle(id: string, order?: string[]): Promise<void> {
   })
   await unwrap(res)
 }
+
+export interface ContributionResult {
+  status: 'confirmed' | 'pending'
+  alreadyRecorded?: boolean
+  reason?: string
+}
+
+/** Hand the server the hash so it can check the chain and credit the round. */
+export async function recordContribution(
+  roundId: string,
+  txHash: string,
+): Promise<ContributionResult> {
+  const res = await fetch('/api/contributions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ roundId, txHash }),
+  })
+  return unwrap<ContributionResult>(res, 'Could not record that payment.')
+}
