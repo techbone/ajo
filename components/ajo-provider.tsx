@@ -21,6 +21,13 @@ import {
   switchToPolygon,
 } from '@/lib/wallet'
 import { isInsideNimiqPay } from '@/lib/nimiq'
+import {
+  discoverWallets,
+  getActiveWallet,
+  restoreActiveWallet,
+  setActiveWallet,
+  type DiscoveredWallet,
+} from '@/lib/providers'
 
 /**
  * Two states, deliberately kept apart:
@@ -42,6 +49,10 @@ interface AjoState {
   walletAddress: string | null
   chainId: string | null
 
+  /** Wallets that answered EIP-6963 discovery. */
+  wallets: DiscoveredWallet[]
+  activeWallet: DiscoveredWallet | null
+
   onPolygon: boolean
   walletConnected: boolean
   /** Wallet is on a different account than the one you signed in as. */
@@ -54,7 +65,8 @@ interface AjoState {
   busy: 'connect' | 'signin' | null
   notice: string | null
 
-  connect: () => Promise<void>
+  connect: (wallet?: DiscoveredWallet) => Promise<void>
+  disconnect: () => void
   authenticate: () => Promise<void>
   ensureWallet: () => Promise<boolean>
   switchAccount: () => Promise<void>
@@ -82,22 +94,35 @@ export function AjoProvider({ children }: { children: ReactNode }) {
   const [pol, setPol] = useState<string | null>(null)
   const [busy, setBusy] = useState<'connect' | 'signin' | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [wallets, setWallets] = useState<DiscoveredWallet[]>([])
+  const [activeWallet, setActive] = useState<DiscoveredWallet | null>(null)
 
   useEffect(() => {
-    const provider = getProvider()
-    setHasProvider(Boolean(provider))
     setInsideNimiqPay(isInsideNimiqPay())
 
     void (async () => {
+      const found = await discoverWallets()
+      setWallets(found)
+      setHasProvider(found.length > 0)
+
+      const restored = restoreActiveWallet()
+      if (restored) setActive(restored)
+
       // eth_accounts, not eth_requestAccounts — reports the existing connection
       // without raising a dialog nobody asked for.
+      const provider = restored?.provider ?? (found.length === 1 ? found[0].provider : undefined)
       if (provider) {
         const [account] = await getConnectedAccounts(provider)
         if (account) {
+          if (!restored && found.length === 1) {
+            setActiveWallet(found[0])
+            setActive(found[0])
+          }
           setWalletAddress(account.toLowerCase())
           setChainId(await getChainId(provider).catch(() => null))
         }
       }
+
       setSession(await fetchSession())
       setReady(true)
     })()
@@ -140,8 +165,13 @@ export function AjoProvider({ children }: { children: ReactNode }) {
     if (session) void refresh()
   }, [session, refresh])
 
-  const connect = useCallback(async () => {
-    const provider = getProvider()
+  const connect = useCallback(async (wallet?: DiscoveredWallet) => {
+    const chosen = wallet ?? getActiveWallet() ?? undefined
+    if (chosen) {
+      setActiveWallet(chosen)
+      setActive(chosen)
+    }
+    const provider = chosen?.provider ?? getProvider()
     if (!provider) return
     setNotice(null)
     setBusy('connect')
@@ -223,13 +253,26 @@ export function AjoProvider({ children }: { children: ReactNode }) {
     }
   }, [session])
 
+  /**
+   * Forget the wallet on Ajo's side. It does not lock the wallet — no dapp can
+   * do that — but it clears our selection so Connect offers the picker again
+   * instead of silently reattaching the same one.
+   */
+  const disconnect = useCallback(() => {
+    setActiveWallet(null)
+    setActive(null)
+    setWalletAddress(null)
+    setChainId(null)
+    setNotice(null)
+  }, [])
+
   const leave = useCallback(async () => {
     await signOut()
     setSession(null)
     setUsdt(null)
     setPol(null)
-    setNotice(null)
-  }, [])
+    disconnect()
+  }, [disconnect])
 
   const walletConnected = walletAddress !== null
   const walletMismatch =
@@ -244,6 +287,8 @@ export function AjoProvider({ children }: { children: ReactNode }) {
       session,
       walletAddress,
       chainId,
+      wallets,
+      activeWallet,
       onPolygon,
       walletConnected,
       walletMismatch,
@@ -253,6 +298,7 @@ export function AjoProvider({ children }: { children: ReactNode }) {
       busy,
       notice,
       connect,
+      disconnect,
       authenticate,
       ensureWallet,
       switchAccount,
@@ -260,9 +306,9 @@ export function AjoProvider({ children }: { children: ReactNode }) {
       refresh,
       clearNotice: () => setNotice(null),
     }),
-    [ready, hasProvider, insideNimiqPay, session, walletAddress, chainId, onPolygon,
+    [ready, hasProvider, insideNimiqPay, session, walletAddress, chainId, wallets, activeWallet, onPolygon,
      walletConnected, walletMismatch, usdt, pol, busy, notice,
-     connect, authenticate, ensureWallet, switchAccount, leave, refresh],
+     connect, disconnect, authenticate, ensureWallet, switchAccount, leave, refresh],
   )
 
   return <AjoContext.Provider value={value}>{children}</AjoContext.Provider>

@@ -11,7 +11,8 @@ import { shortAddress } from '@/lib/format'
  * place the difference is visible at a glance.
  */
 export function AccountBar() {
-  const { session, walletConnected, walletMismatch, onPolygon, leave } = useAjo()
+  const { session, walletConnected, walletMismatch, onPolygon, activeWallet, leave } =
+    useAjo()
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
 
@@ -64,7 +65,9 @@ export function AccountBar() {
 
           <p className="mt-3 flex items-center gap-2 border-t border-border pt-3 text-xs text-muted">
             <Wallet className="h-3.5 w-3.5" />
-            {state.label}
+            {activeWallet && activeWallet.info.rdns !== 'injected'
+              ? `${activeWallet.info.name} · ${state.label}`
+              : state.label}
           </p>
 
           <button

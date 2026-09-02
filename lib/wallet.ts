@@ -1,5 +1,6 @@
 import { encodeFunctionData, formatUnits } from 'viem'
 import { ERC20_BALANCE_OF, POLYGON, USDT } from './chain'
+import { getActiveWallet } from './providers'
 
 /**
  * The EIP-1193 provider Nimiq Pay injects into the WebView. Deliberately
@@ -33,9 +34,13 @@ export function isUserRejection(error: unknown): boolean {
   return providerErrorCode(error) === USER_REJECTED
 }
 
+/**
+ * The provider we are actually talking to: whichever wallet the person chose,
+ * falling back to whatever claimed `window.ethereum`.
+ */
 export function getProvider(): Eip1193Provider | undefined {
   if (typeof window === 'undefined') return undefined
-  return window.ethereum
+  return getActiveWallet()?.provider ?? window.ethereum
 }
 
 export async function requestAccounts(provider: Eip1193Provider): Promise<string[]> {
