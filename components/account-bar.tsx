@@ -75,6 +75,10 @@ export function AccountBar() {
             <LogOut className="h-4 w-4" />
             Sign out
           </button>
+          <p className="mt-2 text-[11px] leading-relaxed text-faint">
+            Signing out ends your Ajo session. Your wallet stays connected — only your
+            wallet can change that.
+          </p>
         </div>
       )}
     </div>

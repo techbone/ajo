@@ -16,6 +16,7 @@ import {
   getConnectedAccounts,
   getProvider,
   isUserRejection,
+  requestAccountChange,
   requestAccounts,
   switchToPolygon,
 } from '@/lib/wallet'
@@ -56,6 +57,7 @@ interface AjoState {
   connect: () => Promise<void>
   authenticate: () => Promise<void>
   ensureWallet: () => Promise<boolean>
+  switchAccount: () => Promise<void>
   leave: () => Promise<void>
   refresh: () => Promise<void>
   clearNotice: () => void
@@ -198,6 +200,29 @@ export function AjoProvider({ children }: { children: ReactNode }) {
     }
   }, [walletAddress])
 
+  /** Let the person pick a different account without leaving Ajo. */
+  const switchAccount = useCallback(async () => {
+    const provider = getProvider()
+    if (!provider) return
+    setNotice(null)
+    setBusy('connect')
+    try {
+      const accounts = await requestAccountChange(provider)
+      if (accounts === null) {
+        setNotice(
+          'This wallet cannot switch accounts from inside an app. Change the account in your wallet, then reload.',
+        )
+        return
+      }
+      const next = accounts[0]?.toLowerCase() ?? null
+      setWalletAddress(next)
+      // Signing in again is a separate, explicit step.
+      if (next && next !== session) setSession(null)
+    } finally {
+      setBusy(null)
+    }
+  }, [session])
+
   const leave = useCallback(async () => {
     await signOut()
     setSession(null)
@@ -230,13 +255,14 @@ export function AjoProvider({ children }: { children: ReactNode }) {
       connect,
       authenticate,
       ensureWallet,
+      switchAccount,
       leave,
       refresh,
       clearNotice: () => setNotice(null),
     }),
     [ready, hasProvider, insideNimiqPay, session, walletAddress, chainId, onPolygon,
      walletConnected, walletMismatch, usdt, pol, busy, notice,
-     connect, authenticate, ensureWallet, leave, refresh],
+     connect, authenticate, ensureWallet, switchAccount, leave, refresh],
   )
 
   return <AjoContext.Provider value={value}>{children}</AjoContext.Provider>
