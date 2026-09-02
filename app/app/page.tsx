@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
-import { AccountBar, WalletBanner } from '@/components/account-bar'
+import { WalletBanner } from '@/components/account-bar'
+import { AppShell } from '@/components/app-shell'
 import { useAjo } from '@/components/ajo-provider'
 import { Button, Card, Field, Notice, Pill, inputClass } from '@/components/ui'
 import { WalletGate } from '@/components/wallet-gate'
@@ -12,21 +13,11 @@ import { formatUsdt, frequencyLabel } from '@/lib/format'
 
 export default function Home() {
   return (
-    <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-5 px-5 pt-8 pb-16">
-      <header className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-4xl font-bold tracking-tight text-accent">Ajo</h1>
-          <p className="mt-1 text-sm text-muted">
-            Rotating savings circles. Your money never touches our servers.
-          </p>
-        </div>
-        <AccountBar />
-      </header>
-
+    <AppShell>
       <WalletGate>
         <Dashboard />
       </WalletGate>
-    </main>
+    </AppShell>
   )
 }
 

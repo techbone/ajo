@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { LogOut, Wallet } from 'lucide-react'
 import { useAjo } from './ajo-provider'
 import { shortAddress } from '@/lib/format'
@@ -13,6 +13,26 @@ import { shortAddress } from '@/lib/format'
 export function AccountBar() {
   const { session, walletConnected, walletMismatch, onPolygon, leave } = useAjo()
   const [open, setOpen] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+
+  // A menu that only closes by pressing the same button reads as stuck open.
+  useEffect(() => {
+    if (!open) return
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
 
   if (!session) return null
 
@@ -25,7 +45,7 @@ export function AccountBar() {
         : { dot: 'bg-good', label: 'Connected' }
 
   return (
-    <div className="relative">
+    <div ref={root} className="relative">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 import { use, useCallback, useEffect, useState } from 'react'
-import { AccountBar, WalletBanner } from '@/components/account-bar'
+import { WalletBanner } from '@/components/account-bar'
+import { AppShell } from '@/components/app-shell'
 import { Button, Card, Notice, Pill } from '@/components/ui'
 import { WalletGate } from '@/components/wallet-gate'
 import { getCircle, lockCircle, type CircleDetail } from '@/lib/api-client'
@@ -11,17 +12,14 @@ import { formatDate, formatUsdt, frequencyLabel, relativeDays, shortAddress } fr
 export default function CirclePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   return (
-    <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-5 px-5 pt-8 pb-16">
-      <div className="flex items-center justify-between gap-4">
-        <Link href="/app" className="text-sm text-muted">
-          ← Your circles
-        </Link>
-        <AccountBar />
-      </div>
+    <AppShell>
+      <Link href="/app" className="text-sm text-muted">
+        ← Your circles
+      </Link>
       <WalletGate>
         <CircleView id={id} />
       </WalletGate>
-    </main>
+    </AppShell>
   )
 }
 
