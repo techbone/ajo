@@ -2,32 +2,34 @@
 
 import type { ReactNode } from 'react'
 import { useAjo } from './ajo-provider'
-import { Button, Card, Notice } from './ui'
+import { Card, Notice } from './ui'
 import { shortAddress } from '@/lib/format'
 
 /**
- * Connect, then prove ownership. Two separate things: connecting exposes an
- * address, signing proves you control it.
+ * One decision, one click: pick a wallet and you are in.
+ *
+ * Connecting and signing are two wallet prompts, but they are not two decisions,
+ * so the UI does not make you press two buttons for them.
  */
 export function WalletGate({ children }: { children: ReactNode }) {
   const {
     ready,
     hasProvider,
     wallets,
-    activeWallet,
     walletAddress,
     session,
     busy,
     notice,
-    connect,
+    start,
     disconnect,
-    authenticate,
     switchAccount,
   } = useAjo()
 
   if (!ready) {
     return <div className="h-24 animate-pulse rounded-xl border border-border bg-surface-2" />
   }
+
+  if (session) return <>{children}</>
 
   if (!hasProvider) {
     return (
@@ -41,40 +43,47 @@ export function WalletGate({ children }: { children: ReactNode }) {
     )
   }
 
-  if (session) return <>{children}</>
+  const working = busy !== null
+  const label =
+    busy === 'signin' ? 'Confirm the signature…' : busy === 'connect' ? 'Opening wallet…' : null
 
-  const pitch = (
-    <Card>
-      <h2 className="text-lg font-semibold">Join a savings circle</h2>
-      <p className="mt-2 text-sm text-muted">
-        Ten people put in $50 a week. Someone walks away with $500 today. Then it rotates,
-        until everyone has had their turn.
-      </p>
-    </Card>
-  )
+  return (
+    <div className="flex flex-col gap-4">
+      <Card>
+        <h2 className="text-lg font-semibold">Join a savings circle</h2>
+        <p className="mt-2 text-sm text-muted">
+          Ten people put in $50 a week. Someone walks away with $500 today. Then it rotates,
+          until everyone has had their turn.
+        </p>
+      </Card>
 
-  const footer = (
-    <p className="text-center text-xs text-faint">
-      Signing is free and moves no money. Ajo never holds your funds.
-    </p>
-  )
+      {notice && <Notice>{notice}</Notice>}
 
-  // Nothing chosen yet, and more than one wallet answered discovery.
-  if (!walletAddress && !activeWallet && wallets.length > 0) {
-    return (
-      <div className="flex flex-col gap-4">
-        {pitch}
-        {notice && <Notice>{notice}</Notice>}
-        <div className="flex flex-col gap-2">
-          <p className="text-xs uppercase tracking-widest text-faint">
-            {wallets.length > 1 ? 'Choose a wallet' : 'Connect a wallet'}
-          </p>
-          {wallets.map((wallet) => (
+      <div className="flex flex-col gap-2">
+        <p className="text-xs uppercase tracking-widest text-faint">
+          {walletAddress
+            ? 'Continue'
+            : wallets.length > 1
+              ? 'Choose a wallet'
+              : 'Connect a wallet'}
+        </p>
+
+        {walletAddress ? (
+          <button
+            type="button"
+            onClick={() => void start()}
+            disabled={working}
+            className="w-full rounded-xl bg-accent px-5 py-4 text-base font-semibold text-accent-ink disabled:opacity-45"
+          >
+            {label ?? `Continue as ${shortAddress(walletAddress)}`}
+          </button>
+        ) : (
+          wallets.map((wallet) => (
             <button
               key={wallet.info.uuid}
               type="button"
-              onClick={() => void connect(wallet)}
-              disabled={busy === 'connect'}
+              onClick={() => void start(wallet)}
+              disabled={working}
               className="flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3.5 text-left disabled:opacity-45"
             >
               {wallet.info.icon ? (
@@ -83,62 +92,31 @@ export function WalletGate({ children }: { children: ReactNode }) {
               ) : (
                 <span className="h-7 w-7 rounded-md bg-surface-2" />
               )}
-              <span className="font-medium">{wallet.info.name}</span>
+              <span className="font-medium">{label ?? wallet.info.name}</span>
             </button>
-          ))}
-        </div>
-        {footer}
+          ))
+        )}
       </div>
-    )
-  }
 
-  return (
-    <div className="flex flex-col gap-4">
-      {pitch}
-      {notice && <Notice>{notice}</Notice>}
-
-      {!walletAddress ? (
-        <Button onClick={() => void connect()} disabled={busy === 'connect'}>
-          {busy === 'connect'
-            ? 'Waiting for approval…'
-            : activeWallet && activeWallet.info.rdns !== 'injected'
-              ? `Connect ${activeWallet.info.name}`
-              : 'Connect wallet'}
-        </Button>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {/* Naming the account matters: signing out cannot disconnect the wallet,
-              so without this the button looks like it silently reuses whatever
-              was connected before. */}
-          <Button onClick={() => void authenticate()} disabled={busy === 'signin'}>
-            {busy === 'signin'
-              ? 'Waiting for signature…'
-              : `Sign in as ${shortAddress(walletAddress)}`}
-          </Button>
-
-          <div className="flex flex-col gap-2 text-center text-sm text-muted">
-            <button
-              type="button"
-              onClick={() => void switchAccount()}
-              disabled={busy === 'connect'}
-              className="underline underline-offset-4 disabled:opacity-45"
-            >
-              Use a different account
-            </button>
-            {wallets.length > 1 && (
-              <button
-                type="button"
-                onClick={disconnect}
-                className="underline underline-offset-4"
-              >
-                Use a different wallet
-              </button>
-            )}
-          </div>
+      {walletAddress && (
+        <div className="flex flex-col gap-2 text-center text-sm text-muted">
+          <button
+            type="button"
+            onClick={() => void switchAccount()}
+            disabled={working}
+            className="underline underline-offset-4 disabled:opacity-45"
+          >
+            Use a different account
+          </button>
+          <button type="button" onClick={disconnect} className="underline underline-offset-4">
+            Use a different wallet
+          </button>
         </div>
       )}
 
-      {footer}
+      <p className="text-center text-xs text-faint">
+        Signing is free and moves no money. Ajo never holds your funds.
+      </p>
     </div>
   )
 }

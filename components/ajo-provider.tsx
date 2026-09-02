@@ -67,6 +67,8 @@ interface AjoState {
 
   connect: (wallet?: DiscoveredWallet) => Promise<void>
   disconnect: () => void
+  /** Connect and sign in as one flow — what picking a wallet should do. */
+  start: (wallet?: DiscoveredWallet) => Promise<void>
   authenticate: () => Promise<void>
   ensureWallet: () => Promise<boolean>
   switchAccount: () => Promise<void>
@@ -229,6 +231,51 @@ export function AjoProvider({ children }: { children: ReactNode }) {
     }
   }, [walletAddress])
 
+  const start = useCallback(
+    async (wallet?: DiscoveredWallet) => {
+      const chosen = wallet ?? getActiveWallet() ?? undefined
+      if (chosen) {
+        setActiveWallet(chosen)
+        setActive(chosen)
+      }
+      const provider = chosen?.provider ?? getProvider()
+      if (!provider) return
+
+      setNotice(null)
+      setBusy('connect')
+      try {
+        const [account] = await requestAccounts(provider)
+        if (!account) {
+          setNotice('No account came back from the wallet.')
+          return
+        }
+        const address = account.toLowerCase()
+        setWalletAddress(address)
+
+        if (!(await switchToPolygon(provider))) {
+          setNotice(`Switch to ${POLYGON.name} to send contributions.`)
+        }
+        setChainId(await getChainId(provider).catch(() => null))
+
+        // Straight into the signature — a second button here is pure friction.
+        setBusy('signin')
+        const { address: signed } = await signIn(provider, address)
+        setSession(signed)
+      } catch (error) {
+        setNotice(
+          isUserRejection(error)
+            ? 'Cancelled. Nothing was signed and no money moved.'
+            : error instanceof Error
+              ? error.message
+              : 'Could not reach the wallet.',
+        )
+      } finally {
+        setBusy(null)
+      }
+    },
+    [],
+  )
+
   /** Let the person pick a different account without leaving Ajo. */
   const switchAccount = useCallback(async () => {
     const provider = getProvider()
@@ -239,18 +286,27 @@ export function AjoProvider({ children }: { children: ReactNode }) {
       const accounts = await requestAccountChange(provider)
       if (accounts === null) {
         setNotice(
-          'This wallet cannot switch accounts from inside an app. Change the account in your wallet, then reload.',
+          'This wallet will not switch accounts from inside an app. Change the account in the wallet itself, then come back.',
         )
         return
       }
+
       const next = accounts[0]?.toLowerCase() ?? null
+      if (!next) {
+        setNotice('No account came back from the wallet.')
+        return
+      }
+      if (next === walletAddress) {
+        setNotice('That is the same account. Pick a different one in your wallet.')
+        return
+      }
+
       setWalletAddress(next)
-      // Signing in again is a separate, explicit step.
-      if (next && next !== session) setSession(null)
+      setSession(null)
     } finally {
       setBusy(null)
     }
-  }, [session])
+  }, [walletAddress])
 
   /**
    * Forget the wallet on Ajo's side. It does not lock the wallet — no dapp can
@@ -298,6 +354,7 @@ export function AjoProvider({ children }: { children: ReactNode }) {
       notice,
       connect,
       disconnect,
+      start,
       authenticate,
       ensureWallet,
       switchAccount,
@@ -307,7 +364,7 @@ export function AjoProvider({ children }: { children: ReactNode }) {
     }),
     [ready, hasProvider, insideNimiqPay, session, walletAddress, chainId, wallets, activeWallet, onPolygon,
      walletConnected, walletMismatch, usdt, pol, busy, notice,
-     connect, disconnect, authenticate, ensureWallet, switchAccount, leave, refresh],
+     connect, disconnect, start, authenticate, ensureWallet, switchAccount, leave, refresh],
   )
 
   return <AjoContext.Provider value={value}>{children}</AjoContext.Provider>
