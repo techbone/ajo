@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 import { ArrowUpRight, Check } from 'lucide-react'
 import { DotGrid } from '@/components/dot-grid'
+import { Mark } from '@/components/logo'
 
 export default function Landing() {
   const router = useRouter()
@@ -35,8 +36,11 @@ function Hero() {
 
       <div className="relative mx-auto grid min-h-[100svh] w-full max-w-[1400px] grid-cols-12 px-6 pt-10 pb-16 sm:px-10">
         <nav className="col-span-12 flex items-center justify-between">
-          <span className="text-[13px] font-medium tracking-[0.22em] uppercase [font-family:var(--font-display)]">
-            Ajo
+          <span className="flex items-center gap-2.5">
+            <Mark className="h-5 w-5 text-[#7C6BFF]" />
+            <span className="text-[13px] font-medium tracking-[0.22em] uppercase [font-family:var(--font-display)]">
+              Ajo
+            </span>
           </span>
           <span className="text-[11px] tracking-[0.18em] text-white/40 uppercase">
             Nimiq Pay Mini App
@@ -314,8 +318,11 @@ function Footer() {
   return (
     <footer className="border-t border-white/8 px-6 py-12 sm:px-10">
       <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <span className="text-[13px] font-medium tracking-[0.22em] uppercase [font-family:var(--font-display)]">
-          Ajo
+        <span className="flex items-center gap-2.5">
+          <Mark className="h-5 w-5 text-white/50" />
+          <span className="text-[13px] font-medium tracking-[0.22em] uppercase [font-family:var(--font-display)]">
+            Ajo
+          </span>
         </span>
         <p className="max-w-full text-[11px] leading-relaxed tracking-[0.14em] text-balance text-white/30 uppercase">
           Built for the Nimiq Pay Mini Apps Competition · USDT on Polygon

@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { AccountBar } from './account-bar'
+import { Wordmark } from './logo'
 
 /**
  * The application chrome: a full-width bar pinned to the top, with the reading
@@ -14,12 +15,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="flex min-h-full flex-1 flex-col">
       <header className="sticky top-0 z-30 border-b border-border bg-bg/85 backdrop-blur-md">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4 px-5 py-3">
-          <Link
-            href="/app"
-            className="text-xl font-bold tracking-tight text-accent"
-            aria-label="Ajo home"
-          >
-            Ajo
+          <Link href="/app" className="text-accent" aria-label="Ajo home">
+            <Wordmark />
           </Link>
           <AccountBar />
         </div>

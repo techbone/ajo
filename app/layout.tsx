@@ -15,10 +15,24 @@ const body = Inter({
   subsets: ["latin"],
 });
 
+const description =
+  "A rotating savings circle on USDT. Ten people put in $50 a week, one person takes the whole pot, and it rotates until everyone has had their turn.";
+
 export const metadata: Metadata = {
+  metadataBase: new URL("https://ajo-kappa.vercel.app"),
   title: "Ajo — nobody holds the money",
-  description:
-    "A rotating savings circle on USDT. Ten people put in $50 a week, one person takes the whole pot, and it rotates until everyone has had their turn.",
+  description,
+  openGraph: {
+    title: "Ajo — nobody holds the money",
+    description,
+    siteName: "Ajo",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Ajo — nobody holds the money",
+    description,
+  },
 };
 
 export const viewport: Viewport = {
