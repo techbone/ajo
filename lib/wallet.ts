@@ -176,29 +176,6 @@ export function formatAmount(value: string, maxDecimals = 2): string {
   })
 }
 
-/**
- * Re-open the wallet's account picker.
- *
- * A dapp cannot disconnect a wallet or choose an account for the user — that is
- * wallet-side. Re-requesting the eth_accounts permission is the standard way to
- * make the wallet show its picker again. Not every wallet implements it, so
- * treat failure as "not supported" rather than an error.
- */
-export async function requestAccountChange(
-  provider: Eip1193Provider,
-): Promise<string[] | null> {
-  try {
-    await provider.request({
-      method: 'wallet_requestPermissions',
-      params: [{ eth_accounts: {} }],
-    })
-    return await provider.request<string[]>({ method: 'eth_accounts' })
-  } catch (error) {
-    if (isUserRejection(error)) return null
-    return null
-  }
-}
-
 /** Ask the wallet to sign a plain-text message. Raises a native dialog. */
 export async function personalSign(
   provider: Eip1193Provider,

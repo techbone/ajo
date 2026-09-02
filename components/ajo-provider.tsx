@@ -16,7 +16,6 @@ import {
   getConnectedAccounts,
   getProvider,
   isUserRejection,
-  requestAccountChange,
   requestAccounts,
   switchToPolygon,
 } from '@/lib/wallet'
@@ -71,7 +70,6 @@ interface AjoState {
   start: (wallet?: DiscoveredWallet) => Promise<void>
   authenticate: () => Promise<void>
   ensureWallet: () => Promise<boolean>
-  switchAccount: () => Promise<void>
   leave: () => Promise<void>
   refresh: () => Promise<void>
   clearNotice: () => void
@@ -276,38 +274,6 @@ export function AjoProvider({ children }: { children: ReactNode }) {
     [],
   )
 
-  /** Let the person pick a different account without leaving Ajo. */
-  const switchAccount = useCallback(async () => {
-    const provider = getProvider()
-    if (!provider) return
-    setNotice(null)
-    setBusy('connect')
-    try {
-      const accounts = await requestAccountChange(provider)
-      if (accounts === null) {
-        setNotice(
-          'This wallet will not switch accounts from inside an app. Change the account in the wallet itself, then come back.',
-        )
-        return
-      }
-
-      const next = accounts[0]?.toLowerCase() ?? null
-      if (!next) {
-        setNotice('No account came back from the wallet.')
-        return
-      }
-      if (next === walletAddress) {
-        setNotice('That is the same account. Pick a different one in your wallet.')
-        return
-      }
-
-      setWalletAddress(next)
-      setSession(null)
-    } finally {
-      setBusy(null)
-    }
-  }, [walletAddress])
-
   /**
    * Forget the wallet on Ajo's side. It does not lock the wallet — no dapp can
    * do that — but it clears our selection so Connect offers the picker again
@@ -357,14 +323,13 @@ export function AjoProvider({ children }: { children: ReactNode }) {
       start,
       authenticate,
       ensureWallet,
-      switchAccount,
       leave,
       refresh,
       clearNotice: () => setNotice(null),
     }),
     [ready, hasProvider, insideNimiqPay, session, walletAddress, chainId, wallets, activeWallet, onPolygon,
      walletConnected, walletMismatch, usdt, pol, busy, notice,
-     connect, disconnect, start, authenticate, ensureWallet, switchAccount, leave, refresh],
+     connect, disconnect, start, authenticate, ensureWallet, leave, refresh],
   )
 
   return <AjoContext.Provider value={value}>{children}</AjoContext.Provider>

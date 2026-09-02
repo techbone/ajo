@@ -8,22 +8,13 @@ import { shortAddress } from '@/lib/format'
 /**
  * One decision, one click: pick a wallet and you are in.
  *
- * Connecting and signing are two wallet prompts, but they are not two decisions,
- * so the UI does not make you press two buttons for them.
+ * Connecting and signing are two wallet prompts but not two decisions, so this
+ * never asks you to press a second button between them. Once you have chosen,
+ * the picker gets out of the way rather than sitting behind the wallet dialog.
  */
 export function WalletGate({ children }: { children: ReactNode }) {
-  const {
-    ready,
-    hasProvider,
-    wallets,
-    walletAddress,
-    session,
-    busy,
-    notice,
-    start,
-    disconnect,
-    switchAccount,
-  } = useAjo()
+  const { ready, hasProvider, wallets, walletAddress, session, busy, notice, start, disconnect } =
+    useAjo()
 
   if (!ready) {
     return <div className="h-24 animate-pulse rounded-xl border border-border bg-surface-2" />
@@ -43,9 +34,28 @@ export function WalletGate({ children }: { children: ReactNode }) {
     )
   }
 
-  const working = busy !== null
-  const label =
-    busy === 'signin' ? 'Confirm the signature…' : busy === 'connect' ? 'Opening wallet…' : null
+  // Once the wallet is open, the choice is made. Showing the picker underneath
+  // it just invites a second click on something already in progress.
+  if (busy) {
+    return (
+      <Card>
+        <div className="flex items-center gap-3">
+          <span
+            className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-border border-t-accent"
+            aria-hidden="true"
+          />
+          <p className="font-medium">
+            {busy === 'signin' ? 'Confirm the signature' : 'Opening your wallet'}
+          </p>
+        </div>
+        <p className="mt-3 text-sm text-muted">
+          {busy === 'signin'
+            ? 'Approve the message in your wallet to finish signing in. It is free and moves no money.'
+            : 'Approve the connection in your wallet.'}
+        </p>
+      </Card>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -61,21 +71,16 @@ export function WalletGate({ children }: { children: ReactNode }) {
 
       <div className="flex flex-col gap-2">
         <p className="text-xs uppercase tracking-widest text-faint">
-          {walletAddress
-            ? 'Continue'
-            : wallets.length > 1
-              ? 'Choose a wallet'
-              : 'Connect a wallet'}
+          {walletAddress ? 'Continue' : wallets.length > 1 ? 'Choose a wallet' : 'Connect a wallet'}
         </p>
 
         {walletAddress ? (
           <button
             type="button"
             onClick={() => void start()}
-            disabled={working}
-            className="w-full rounded-xl bg-accent px-5 py-4 text-base font-semibold text-accent-ink disabled:opacity-45"
+            className="w-full rounded-xl bg-accent px-5 py-4 text-base font-semibold text-accent-ink"
           >
-            {label ?? `Continue as ${shortAddress(walletAddress)}`}
+            Continue as {shortAddress(walletAddress)}
           </button>
         ) : (
           wallets.map((wallet) => (
@@ -83,8 +88,7 @@ export function WalletGate({ children }: { children: ReactNode }) {
               key={wallet.info.uuid}
               type="button"
               onClick={() => void start(wallet)}
-              disabled={working}
-              className="flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3.5 text-left disabled:opacity-45"
+              className="flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3.5 text-left"
             >
               {wallet.info.icon ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -92,26 +96,20 @@ export function WalletGate({ children }: { children: ReactNode }) {
               ) : (
                 <span className="h-7 w-7 rounded-md bg-surface-2" />
               )}
-              <span className="font-medium">{label ?? wallet.info.name}</span>
+              <span className="font-medium">{wallet.info.name}</span>
             </button>
           ))
         )}
       </div>
 
       {walletAddress && (
-        <div className="flex flex-col gap-2 text-center text-sm text-muted">
-          <button
-            type="button"
-            onClick={() => void switchAccount()}
-            disabled={working}
-            className="underline underline-offset-4 disabled:opacity-45"
-          >
-            Use a different account
-          </button>
-          <button type="button" onClick={disconnect} className="underline underline-offset-4">
-            Use a different wallet
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={disconnect}
+          className="text-center text-sm text-muted underline underline-offset-4"
+        >
+          Use a different wallet
+        </button>
       )}
 
       <p className="text-center text-xs text-faint">
