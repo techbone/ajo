@@ -11,8 +11,10 @@ export default function Landing() {
   const router = useRouter()
 
   // Inside Nimiq Pay there is no marketing to do — send people straight in.
+  // `?landing` opts out, which is how you view or screenshot this page in the host.
   useEffect(() => {
-    if (window.nimiqPay) router.replace('/app')
+    const stay = new URLSearchParams(window.location.search).has('landing')
+    if (window.nimiqPay && !stay) router.replace('/app')
   }, [router])
 
   return (
