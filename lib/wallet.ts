@@ -42,6 +42,22 @@ export async function requestAccounts(provider: Eip1193Provider): Promise<string
   return provider.request<string[]>({ method: 'eth_requestAccounts' })
 }
 
+/**
+ * Accounts the wallet has *already* authorised, without raising a dialog.
+ *
+ * eth_accounts is the passive counterpart to eth_requestAccounts: it returns an
+ * empty array rather than prompting, which is what we want on page load.
+ */
+export async function getConnectedAccounts(
+  provider: Eip1193Provider,
+): Promise<string[]> {
+  try {
+    return await provider.request<string[]>({ method: 'eth_accounts' })
+  } catch {
+    return []
+  }
+}
+
 export async function getChainId(provider: Eip1193Provider): Promise<string> {
   return provider.request<string>({ method: 'eth_chainId' })
 }

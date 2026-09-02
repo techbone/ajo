@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { use, useCallback, useEffect, useState } from 'react'
+import { AccountBar, WalletBanner } from '@/components/account-bar'
 import { Button, Card, Notice, Pill } from '@/components/ui'
 import { WalletGate } from '@/components/wallet-gate'
 import { getCircle, lockCircle, type CircleDetail } from '@/lib/api-client'
@@ -11,9 +12,12 @@ export default function CirclePage({ params }: { params: Promise<{ id: string }>
   const { id } = use(params)
   return (
     <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-5 px-5 pt-8 pb-16">
-      <Link href="/" className="text-sm text-muted">
-        ← Your circles
-      </Link>
+      <div className="flex items-center justify-between gap-4">
+        <Link href="/app" className="text-sm text-muted">
+          ← Your circles
+        </Link>
+        <AccountBar />
+      </div>
       <WalletGate>
         <CircleView id={id} />
       </WalletGate>
@@ -60,6 +64,8 @@ function CircleView({ id }: { id: string }) {
 
   return (
     <div className="flex flex-col gap-5">
+      <WalletBanner />
+
       <div>
         <div className="flex items-start justify-between gap-3">
           <h1 className="text-2xl font-bold tracking-tight">{circle.name}</h1>

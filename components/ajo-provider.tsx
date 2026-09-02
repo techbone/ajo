@@ -9,10 +9,11 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { fetchBalances, fetchSession, signIn } from '@/lib/auth-client'
+import { fetchBalances, fetchSession, signIn, signOut } from '@/lib/auth-client'
 import { POLYGON } from '@/lib/chain'
 import {
   getChainId,
+  getConnectedAccounts,
   getProvider,
   isUserRejection,
   requestAccounts,
@@ -20,20 +21,42 @@ import {
 } from '@/lib/wallet'
 import { isInsideNimiqPay } from '@/lib/nimiq'
 
+/**
+ * Two states, deliberately kept apart:
+ *
+ *   session       — server cookie proving address ownership. Identity. Survives
+ *                   the wallet disconnecting, and is enough to read your circles.
+ *   walletAddress — the live wallet connection. Capability. Required only to
+ *                   sign or send, and can disappear at any moment.
+ *
+ * Conflating them means a disconnected wallet still looks signed in, and — worse
+ * — reconnecting on a different account would leave you acting as the old one.
+ */
 interface AjoState {
   ready: boolean
   hasProvider: boolean
   insideNimiqPay: boolean
-  address: string | null
+
   session: string | null
+  walletAddress: string | null
   chainId: string | null
+
   onPolygon: boolean
+  walletConnected: boolean
+  /** Wallet is on a different account than the one you signed in as. */
+  walletMismatch: boolean
+  /** Everything needed to actually send a contribution is in place. */
+  canTransact: boolean
+
   usdt: string | null
   pol: string | null
   busy: 'connect' | 'signin' | null
   notice: string | null
+
   connect: () => Promise<void>
   authenticate: () => Promise<void>
+  ensureWallet: () => Promise<boolean>
+  leave: () => Promise<void>
   refresh: () => Promise<void>
   clearNotice: () => void
 }
@@ -50,32 +73,66 @@ export function AjoProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false)
   const [hasProvider, setHasProvider] = useState(false)
   const [insideNimiqPay, setInsideNimiqPay] = useState(false)
-  const [address, setAddress] = useState<string | null>(null)
   const [session, setSession] = useState<string | null>(null)
+  const [walletAddress, setWalletAddress] = useState<string | null>(null)
   const [chainId, setChainId] = useState<string | null>(null)
   const [usdt, setUsdt] = useState<string | null>(null)
   const [pol, setPol] = useState<string | null>(null)
   const [busy, setBusy] = useState<'connect' | 'signin' | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
-  // Detection only — no wallet call here would raise a dialog the user didn't ask for.
   useEffect(() => {
-    setHasProvider(Boolean(getProvider()))
+    const provider = getProvider()
+    setHasProvider(Boolean(provider))
     setInsideNimiqPay(isInsideNimiqPay())
-    void fetchSession().then((addr) => {
-      setSession(addr)
-      if (addr) setAddress(addr)
+
+    void (async () => {
+      // eth_accounts, not eth_requestAccounts — reports the existing connection
+      // without raising a dialog nobody asked for.
+      if (provider) {
+        const [account] = await getConnectedAccounts(provider)
+        if (account) {
+          setWalletAddress(account.toLowerCase())
+          setChainId(await getChainId(provider).catch(() => null))
+        }
+      }
+      setSession(await fetchSession())
       setReady(true)
-    })
+    })()
+  }, [])
+
+  // The wallet can change or vanish at any time; the UI has to follow it.
+  useEffect(() => {
+    const provider = getProvider()
+    if (!provider?.on) return
+
+    const onAccountsChanged = (...args: never[]) => {
+      const accounts = args[0] as unknown as string[] | undefined
+      const next = accounts?.[0]?.toLowerCase() ?? null
+      setWalletAddress(next)
+      if (!next) setNotice('Wallet disconnected. Reconnect to send a contribution.')
+    }
+
+    const onChainChanged = (...args: never[]) => {
+      setChainId((args[0] as unknown as string) ?? null)
+    }
+
+    provider.on('accountsChanged', onAccountsChanged)
+    provider.on('chainChanged', onChainChanged)
+
+    return () => {
+      provider.removeListener?.('accountsChanged', onAccountsChanged)
+      provider.removeListener?.('chainChanged', onChainChanged)
+    }
   }, [])
 
   const refresh = useCallback(async () => {
-    const target = session ?? address
+    const target = session ?? walletAddress
     if (!target) return
     const { usdt: u, pol: p } = await fetchBalances(target)
     setUsdt(u)
     setPol(p)
-  }, [session, address])
+  }, [session, walletAddress])
 
   useEffect(() => {
     if (session) void refresh()
@@ -92,9 +149,8 @@ export function AjoProvider({ children }: { children: ReactNode }) {
         setNotice('No account came back from the wallet.')
         return
       }
-      setAddress(account.toLowerCase())
-      const switched = await switchToPolygon(provider)
-      if (!switched) {
+      setWalletAddress(account.toLowerCase())
+      if (!(await switchToPolygon(provider))) {
         setNotice(`Switch to ${POLYGON.name} to send contributions.`)
       }
       setChainId(await getChainId(provider))
@@ -111,14 +167,24 @@ export function AjoProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  /** Called right before an action that needs signing. Reconnects on demand. */
+  const ensureWallet = useCallback(async (): Promise<boolean> => {
+    const provider = getProvider()
+    if (!provider) return false
+    if (walletAddress && walletAddress === session) return true
+    await connect()
+    const [account] = await getConnectedAccounts(provider)
+    return Boolean(account) && account.toLowerCase() === session
+  }, [walletAddress, session, connect])
+
   const authenticate = useCallback(async () => {
     const provider = getProvider()
-    if (!provider || !address) return
+    if (!provider || !walletAddress) return
     setNotice(null)
     setBusy('signin')
     try {
-      const { address: signed } = await signIn(provider, address)
-      setSession(signed)
+      const { address } = await signIn(provider, walletAddress)
+      setSession(address)
     } catch (error) {
       setNotice(
         isUserRejection(error)
@@ -130,27 +196,47 @@ export function AjoProvider({ children }: { children: ReactNode }) {
     } finally {
       setBusy(null)
     }
-  }, [address])
+  }, [walletAddress])
+
+  const leave = useCallback(async () => {
+    await signOut()
+    setSession(null)
+    setUsdt(null)
+    setPol(null)
+    setNotice(null)
+  }, [])
+
+  const walletConnected = walletAddress !== null
+  const walletMismatch =
+    session !== null && walletConnected && walletAddress !== session
+  const onPolygon = chainId === POLYGON.chainIdHex
 
   const value = useMemo<AjoState>(
     () => ({
       ready,
       hasProvider,
       insideNimiqPay,
-      address,
       session,
+      walletAddress,
       chainId,
-      onPolygon: chainId === POLYGON.chainIdHex,
+      onPolygon,
+      walletConnected,
+      walletMismatch,
+      canTransact: Boolean(session) && walletConnected && !walletMismatch && onPolygon,
       usdt,
       pol,
       busy,
       notice,
       connect,
       authenticate,
+      ensureWallet,
+      leave,
       refresh,
       clearNotice: () => setNotice(null),
     }),
-    [ready, hasProvider, insideNimiqPay, address, session, chainId, usdt, pol, busy, notice, connect, authenticate, refresh],
+    [ready, hasProvider, insideNimiqPay, session, walletAddress, chainId, onPolygon,
+     walletConnected, walletMismatch, usdt, pol, busy, notice,
+     connect, authenticate, ensureWallet, leave, refresh],
   )
 
   return <AjoContext.Provider value={value}>{children}</AjoContext.Provider>

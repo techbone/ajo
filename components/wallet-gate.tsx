@@ -9,7 +9,8 @@ import { Button, Card, Notice } from './ui'
  * live here once rather than being repeated on every screen.
  */
 export function WalletGate({ children }: { children: ReactNode }) {
-  const { ready, hasProvider, address, session, busy, notice, connect, authenticate } = useAjo()
+  const { ready, hasProvider, walletAddress, session, busy, notice, connect, authenticate } =
+    useAjo()
 
   if (!ready) {
     return <div className="h-24 animate-pulse rounded-xl border border-border bg-surface-2" />
@@ -40,7 +41,7 @@ export function WalletGate({ children }: { children: ReactNode }) {
 
         {notice && <Notice>{notice}</Notice>}
 
-        {!address ? (
+        {!walletAddress ? (
           <Button onClick={() => void connect()} disabled={busy === 'connect'}>
             {busy === 'connect' ? 'Waiting for approval…' : 'Connect wallet'}
           </Button>

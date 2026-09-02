@@ -63,3 +63,7 @@ export async function fetchBalances(address: string): Promise<Balances> {
     }
   )
 }
+
+export async function signOut(): Promise<void> {
+  await fetch('/api/auth/signout', { method: 'POST' })
+}
