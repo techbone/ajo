@@ -51,10 +51,10 @@ export interface CircleDetail {
   you: string
 }
 
-async function unwrap<T>(res: Response): Promise<T> {
-  const body = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(body.error ?? 'Something went wrong.')
-  return body as T
+import { unwrap as unwrapResponse } from './http'
+
+function unwrap<T>(res: Response, fallback = 'Something went wrong.'): Promise<T> {
+  return unwrapResponse<T>(res, fallback)
 }
 
 export async function listCircles(): Promise<CircleDto[]> {

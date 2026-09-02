@@ -1,3 +1,4 @@
+import { errorMessage, readJson, unwrap } from './http'
 import { personalSign, type Eip1193Provider } from './wallet'
 
 /**
@@ -13,10 +14,10 @@ export async function signIn(
   const nonceRes = await fetch(`/api/auth/nonce?address=${address}`, {
     cache: 'no-store',
   })
-  if (!nonceRes.ok) {
-    throw new Error((await nonceRes.json()).error ?? 'Could not start sign-in.')
-  }
-  const { message } = (await nonceRes.json()) as { message: string }
+  const { message } = await unwrap<{ message: string }>(
+    nonceRes,
+    'Could not start sign-in.',
+  )
 
   const signature = await personalSign(provider, message, address)
 
@@ -25,18 +26,14 @@ export async function signIn(
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ address, signature }),
   })
-  if (!verifyRes.ok) {
-    throw new Error((await verifyRes.json()).error ?? 'Could not verify your signature.')
-  }
-
-  return verifyRes.json()
+  return unwrap<{ address: string }>(verifyRes, 'Could not verify your signature.')
 }
 
 export async function fetchSession(): Promise<string | null> {
   try {
     const res = await fetch('/api/auth/me', { cache: 'no-store' })
     if (!res.ok) return null
-    return ((await res.json()) as { address: string | null }).address
+    return (await readJson<{ address: string | null }>(res))?.address ?? null
   } catch {
     return null
   }
@@ -55,8 +52,14 @@ export interface Balances {
 export async function fetchBalances(address: string): Promise<Balances> {
   const res = await fetch(`/api/balances?address=${address}`, { cache: 'no-store' })
   if (!res.ok) {
-    const message = (await res.json()).error ?? 'Could not read balances.'
+    const message = await errorMessage(res, 'Could not read balances.')
     return { usdt: null, pol: null, errors: { usdt: message, pol: message } }
   }
-  return res.json()
+  return (
+    (await readJson<Balances>(res)) ?? {
+      usdt: null,
+      pol: null,
+      errors: { usdt: 'Empty response.', pol: 'Empty response.' },
+    }
+  )
 }
