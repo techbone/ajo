@@ -1,6 +1,7 @@
-# Vercel's Hobby plan runs cron once a day, which is far too slow to confirm a
-# payment. GitHub Actions is free on public repos, so it drives the frequent
-# sweep and Vercel's daily cron stays as a backstop.
+# Vercel's Hobby plan caps cron at once per day — far too slow to confirm a
+# payment — and rejects any deployment asking for more. So Vercel keeps a daily
+# run as a backstop and GitHub Actions drives the frequent sweep. Actions is
+# free and unlimited on public repos.
 name: Sweep contributions
 
 on:
@@ -12,11 +13,34 @@ jobs:
   sweep:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger sweep
+      - name: Check secrets are configured
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          code=$(curl -s -o /tmp/out.json -w '%{http_code}' \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.APP_URL }}/api/cron/sweep")
-          cat /tmp/out.json
+          missing=""
+          [ -z "$APP_URL" ] && missing="$missing APP_URL"
+          [ -z "$CRON_SECRET" ] && missing="$missing CRON_SECRET"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing"
+            echo "Add them under Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+      - name: Trigger sweep
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          code=$(curl -sS -o /tmp/out.json -w '%{http_code}' \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$APP_URL/api/cron/sweep")
+          echo "HTTP $code"
+          cat /tmp/out.json 2>/dev/null || true
           echo
-          test "$code" = "200"
+          case "$code" in
+            200) ;;
+            401) echo "::error::CRON_SECRET does not match the one set in Vercel."; exit 1 ;;
+            404) echo "::error::Sweep route not deployed. Check the latest Vercel deployment succeeded."; exit 1 ;;
+            *)   echo "::error::Sweep failed with HTTP $code"; exit 1 ;;
+          esac
