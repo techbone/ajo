@@ -1,10 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Clock, ExternalLink } from 'lucide-react'
 import { useAjo } from './ajo-provider'
 import { Card, Notice, Pill } from './ui'
-import { recordContribution, type CircleDetail } from '@/lib/api-client'
+import { recordContribution, recheckRound, type CircleDetail } from '@/lib/api-client'
 import { MIN_GAS_POL, POLYGON, USDT } from '@/lib/chain'
 import { formatUsdt, relativeDays, shortAddress } from '@/lib/format'
 import { describePayError, sendContribution } from '@/lib/pay'
@@ -19,8 +19,43 @@ export function RoundView({ data, onPaid }: { data: CircleDetail; onPaid: () => 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+  const polling = useRef(false)
 
   const round = data.rounds.find((r) => r.status === 'open')
+
+  const roundId = round?.id ?? null
+  const hasUnconfirmed = data.contributions.some(
+    (c) => c.roundId === roundId && c.status !== 'confirmed' && Boolean(c.txHash),
+  )
+
+  /**
+   * A transaction is rarely mined by the time its hash reaches us, so keep
+   * asking until the chain agrees. Polygon blocks are ~2s; this gives up after
+   * a minute and leaves the sweep to finish the job.
+   */
+  const watch = useCallback(async () => {
+    if (!roundId || polling.current) return
+    polling.current = true
+    try {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 3000))
+        const { confirmed } = await recheckRound(roundId).catch(() => ({ confirmed: 0 }))
+        if (confirmed > 0) {
+          setPending(false)
+          await onPaid()
+          return
+        }
+      }
+    } finally {
+      polling.current = false
+    }
+  }, [roundId, onPaid])
+
+  // Covers reloading the page mid-confirmation, or a browser closed too early.
+  useEffect(() => {
+    if (hasUnconfirmed) void watch()
+  }, [hasUnconfirmed, watch])
+
   if (!round) return null
 
   const forRound = data.contributions.filter((c) => c.roundId === round.id)
@@ -57,6 +92,7 @@ export function RoundView({ data, onPaid }: { data: CircleDetail; onPaid: () => 
       setPending(result.status === 'pending')
       await onPaid()
       void refresh()
+      if (result.status === 'pending') void watch()
     } catch (e) {
       setError(describePayError(e))
     } finally {
@@ -137,7 +173,8 @@ export function RoundView({ data, onPaid }: { data: CircleDetail; onPaid: () => 
 
       {pending && !error && (
         <p className="mt-4 rounded-lg border border-border bg-surface-2 px-4 py-3 text-sm text-muted">
-          Sent. It will show as paid once the network confirms it — usually a few seconds.
+          Sent, waiting for the network to confirm. This usually takes a few seconds — you can
+          leave this screen, it will still go through.
         </p>
       )}
 

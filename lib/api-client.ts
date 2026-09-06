@@ -117,3 +117,13 @@ export async function recordContribution(
   })
   return unwrap<ContributionResult>(res, 'Could not record that payment.')
 }
+
+/** Ask the server to look again at unconfirmed payments in a round. */
+export async function recheckRound(roundId: string): Promise<{ confirmed: number }> {
+  const res = await fetch('/api/contributions/recheck', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ roundId }),
+  })
+  return unwrap<{ confirmed: number }>(res, 'Could not check that payment.')
+}

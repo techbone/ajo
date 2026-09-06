@@ -178,3 +178,63 @@ export async function getPendingContributions(roundIds: string[]) {
     .where(and(ne(schema.contributions.status, 'confirmed'), isNull(schema.contributions.confirmedAt)))
   return rows.filter((r) => roundIds.includes(r.roundId))
 }
+
+/**
+ * Re-check contributions that were submitted but not yet confirmed.
+ *
+ * A transaction is almost never mined by the time the browser posts its hash,
+ * so the first verification legitimately returns "pending". Without something
+ * to look again, that pending state is where the payment stays until the daily
+ * sweep runs — which is not what "the blockchain is fast" should feel like.
+ *
+ * Cheap to call: one receipt lookup per outstanding hash, and it stops as soon
+ * as a contribution is confirmed.
+ */
+export async function recheckPending(roundId: string): Promise<{ confirmed: number }> {
+  const db = getDb()
+
+  const rows = await db
+    .select()
+    .from(schema.contributions)
+    .where(
+      and(
+        eq(schema.contributions.roundId, roundId),
+        ne(schema.contributions.status, 'confirmed'),
+      ),
+    )
+
+  const withHash = rows.filter((r) => Boolean(r.txHash))
+  if (withHash.length === 0) return { confirmed: 0 }
+
+  let confirmed = 0
+
+  for (const row of withHash) {
+    const result = await verifyTransaction(row.txHash as string, {
+      from: row.fromAddress,
+      to: row.toAddress,
+      amount: row.amount,
+    })
+    if (!result.ok) continue
+
+    await db
+      .update(schema.contributions)
+      .set({
+        blockNumber: result.blockNumber,
+        status: 'confirmed',
+        confirmedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(schema.contributions.id, row.id),
+          ne(schema.contributions.status, 'confirmed'),
+        ),
+      )
+
+    await recordReputation(row.roundId, row.fromAddress)
+    confirmed += 1
+  }
+
+  if (confirmed > 0) await advanceRoundIfComplete(roundId)
+
+  return { confirmed }
+}
