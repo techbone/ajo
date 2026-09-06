@@ -102,13 +102,21 @@ export async function verifyTransaction(
 
   const blockNumber = BigInt(receipt.blockNumber)
 
+  // A receipt alone is not enough: the block holding it can still be reorged
+  // out. If the chain head cannot be read we do not know the depth, so the only
+  // safe answer is to look again — treating an RPC blip as proof of depth would
+  // confirm a payment sitting one block deep.
   try {
     const head = await getBlockNumber()
     if (head - blockNumber + 1n < BigInt(CONFIRMATIONS)) {
       return { ok: false, reason: 'Waiting for confirmations.', retryable: true }
     }
   } catch {
-    // If we cannot read the head, accept the receipt rather than stalling.
+    return {
+      ok: false,
+      reason: 'Could not confirm how deep that transaction is yet.',
+      retryable: true,
+    }
   }
 
   return { ok: true, blockNumber, amount: transfer.value }

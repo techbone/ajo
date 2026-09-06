@@ -1,7 +1,22 @@
-import { and, asc, eq, isNull, ne } from 'drizzle-orm'
+import { and, asc, eq, inArray, ne } from 'drizzle-orm'
 import { getDb, schema } from '@/db'
 import { CircleError } from './circles'
 import { verifyTransaction } from './verify'
+
+/**
+ * Postgres unique-violation, raised when a tx hash is already credited.
+ *
+ * Drivers disagree about where they put the code — sometimes on the error,
+ * sometimes on its cause — so check both and fall back to the message.
+ */
+function isDuplicateTxHash(error: unknown): boolean {
+  const err = error as { code?: unknown; cause?: { code?: unknown }; message?: unknown }
+  return (
+    err?.code === '23505' ||
+    err?.cause?.code === '23505' ||
+    /duplicate key|unique constraint/i.test(String(err?.message ?? ''))
+  )
+}
 
 /**
  * Turning a claimed payment into a confirmed one.
@@ -47,24 +62,47 @@ export async function submitContribution(params: {
   if (!result.ok) {
     // Still being mined is not an error — hold the hash and let the sweep finish.
     if (result.retryable) {
-      await db
-        .update(schema.contributions)
-        .set({ txHash: params.txHash })
-        .where(eq(schema.contributions.id, contribution.id))
+      // Hold the hash so the re-check can finish the job. It has not been proven
+      // yet, so nothing is marked paid — but it must still be unique, or two
+      // people could park the same transaction on two contributions.
+      try {
+        await db
+          .update(schema.contributions)
+          .set({ txHash: params.txHash })
+          .where(eq(schema.contributions.id, contribution.id))
+      } catch (error) {
+        if (isDuplicateTxHash(error)) {
+          throw new CircleError(
+            'That transaction has already been recorded for another contribution.',
+            409,
+          )
+        }
+        throw error
+      }
       return { status: 'pending' as const, reason: result.reason }
     }
     throw new CircleError(result.reason, 400)
   }
 
-  await db
-    .update(schema.contributions)
-    .set({
-      txHash: params.txHash,
-      blockNumber: result.blockNumber,
-      status: 'confirmed',
-      confirmedAt: new Date(),
-    })
-    .where(eq(schema.contributions.id, contribution.id))
+  try {
+    await db
+      .update(schema.contributions)
+      .set({
+        txHash: params.txHash,
+        blockNumber: result.blockNumber,
+        status: 'confirmed',
+        confirmedAt: new Date(),
+      })
+      .where(eq(schema.contributions.id, contribution.id))
+  } catch (error) {
+    if (isDuplicateTxHash(error)) {
+      throw new CircleError(
+        'That transaction has already been recorded for another contribution.',
+        409,
+      )
+    }
+    throw error
+  }
 
   await recordReputation(contribution.roundId, from)
   await advanceRoundIfComplete(contribution.roundId)
@@ -82,65 +120,98 @@ async function recordReputation(roundId: string, address: string) {
     .limit(1)
   if (!round) return
 
-  await db.insert(schema.reputationEvents).values({
-    address,
-    circleId: round.circleId,
-    roundId,
-    kind: Date.now() <= round.dueAt.getTime() ? 'paid_on_time' : 'paid_late',
-  })
+  // Both verification paths can reach the same payment. The unique index on
+  // (address, round_id) is what keeps streaks honest; this just declines to
+  // fight it.
+  await db
+    .insert(schema.reputationEvents)
+    .values({
+      address,
+      circleId: round.circleId,
+      roundId,
+      kind: Date.now() <= round.dueAt.getTime() ? 'paid_on_time' : 'paid_late',
+    })
+    .onConflictDoNothing()
 }
 
 /**
  * Close a round once every contribution has confirmed, and open the next one.
  *
- * Safe to call repeatedly: it does nothing until the round is genuinely complete,
- * and the status check means a second caller cannot advance it twice.
+ * Only an open round can be closed — contributions can legitimately arrive for
+ * a round that has not started yet, and settling it early would pay someone out
+ * before their turn.
+ *
+ * The close is a conditional update: two callers racing on the same round means
+ * exactly one sees a returned row and continues. And because a round may already
+ * be fully funded by the time it opens, this walks forward until it reaches one
+ * that is genuinely still collecting.
  */
 export async function advanceRoundIfComplete(roundId: string): Promise<boolean> {
   const db = getDb()
+  let advanced = false
+  let currentId: string | null = roundId
 
-  const [round] = await db
-    .select()
-    .from(schema.rounds)
-    .where(eq(schema.rounds.id, roundId))
-    .limit(1)
-  if (!round || round.status === 'complete') return false
+  // Bounded: a circle cannot have more rounds than it has members.
+  for (let guard = 0; currentId && guard < 64; guard += 1) {
+    const [round] = await db
+      .select()
+      .from(schema.rounds)
+      .where(eq(schema.rounds.id, currentId))
+      .limit(1)
 
-  const outstanding = await db
-    .select({ id: schema.contributions.id })
-    .from(schema.contributions)
-    .where(
-      and(
-        eq(schema.contributions.roundId, roundId),
-        ne(schema.contributions.status, 'confirmed'),
-      ),
-    )
+    if (!round || round.status !== 'open') break
 
-  if (outstanding.length > 0) return false
+    const outstanding = await db
+      .select({ id: schema.contributions.id })
+      .from(schema.contributions)
+      .where(
+        and(
+          eq(schema.contributions.roundId, round.id),
+          ne(schema.contributions.status, 'confirmed'),
+        ),
+      )
 
-  await db
-    .update(schema.rounds)
-    .set({ status: 'complete' })
-    .where(eq(schema.rounds.id, roundId))
+    if (outstanding.length > 0) break
 
-  const [next] = await db
-    .select()
-    .from(schema.rounds)
-    .where(and(eq(schema.rounds.circleId, round.circleId), eq(schema.rounds.status, 'upcoming')))
-    .orderBy(asc(schema.rounds.index))
-    .limit(1)
+    const closed = await db
+      .update(schema.rounds)
+      .set({ status: 'complete' })
+      .where(and(eq(schema.rounds.id, round.id), eq(schema.rounds.status, 'open')))
+      .returning({ id: schema.rounds.id })
 
-  if (next) {
+    // Lost the race — another caller closed it and owns what happens next.
+    if (closed.length === 0) break
+
+    advanced = true
+
+    const [next] = await db
+      .select()
+      .from(schema.rounds)
+      .where(
+        and(eq(schema.rounds.circleId, round.circleId), eq(schema.rounds.status, 'upcoming')),
+      )
+      .orderBy(asc(schema.rounds.index))
+      .limit(1)
+
+    if (!next) {
+      // Last round settled: everyone has paid the same and been paid once.
+      await db
+        .update(schema.circles)
+        .set({ status: 'completed' })
+        .where(eq(schema.circles.id, round.circleId))
+      break
+    }
+
     await db.update(schema.rounds).set({ status: 'open' }).where(eq(schema.rounds.id, next.id))
-  } else {
-    // Last round settled: everyone has paid the same and been paid once.
-    await db
-      .update(schema.circles)
-      .set({ status: 'completed' })
-      .where(eq(schema.circles.id, round.circleId))
+    currentId = next.id
   }
 
-  return true
+  return advanced
+}
+
+/** Record that a member paid, whichever path proved it. Safe to call twice. */
+export async function noteContributionPaid(roundId: string, address: string): Promise<void> {
+  await recordReputation(roundId, address)
 }
 
 /** The round currently collecting money for a circle, if any. */
@@ -166,17 +237,6 @@ export async function getOpenRoundsWithRecipients() {
     })
     .from(schema.rounds)
     .where(eq(schema.rounds.status, 'open'))
-}
-
-/** Contributions still waiting on money, for the rounds the sweep is scanning. */
-export async function getPendingContributions(roundIds: string[]) {
-  if (roundIds.length === 0) return []
-  const db = getDb()
-  const rows = await db
-    .select()
-    .from(schema.contributions)
-    .where(and(ne(schema.contributions.status, 'confirmed'), isNull(schema.contributions.confirmedAt)))
-  return rows.filter((r) => roundIds.includes(r.roundId))
 }
 
 /**
@@ -216,7 +276,10 @@ export async function recheckPending(roundId: string): Promise<{ confirmed: numb
     })
     if (!result.ok) continue
 
-    await db
+    // returning() is what tells us whether this call did the work or whether
+    // the sweep got there first. Without it every racing caller would record a
+    // reputation event and report a confirmation for the same payment.
+    const updated = await db
       .update(schema.contributions)
       .set({
         blockNumber: result.blockNumber,
@@ -229,6 +292,9 @@ export async function recheckPending(roundId: string): Promise<{ confirmed: numb
           ne(schema.contributions.status, 'confirmed'),
         ),
       )
+      .returning({ id: schema.contributions.id })
+
+    if (updated.length === 0) continue
 
     await recordReputation(row.roundId, row.fromAddress)
     confirmed += 1

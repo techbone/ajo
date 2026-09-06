@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "reputation_address_round_idx" ON "reputation_events" USING btree ("address","round_id");

@@ -155,7 +155,13 @@ export const reputationEvents = pgTable(
     kind: reputationKindEnum('kind').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('reputation_address_idx').on(t.address)],
+  (t) => [
+    index('reputation_address_idx').on(t.address),
+    // One event per member per round. Both verification paths can confirm the
+    // same payment, and control flow alone is too fragile to keep streaks
+    // honest — let the database refuse the duplicate, as tx_hash already does.
+    uniqueIndex('reputation_address_round_idx').on(t.address, t.roundId),
+  ],
 )
 
 /**

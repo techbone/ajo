@@ -1,7 +1,7 @@
-import { and, eq, ne } from 'drizzle-orm'
+import { and, eq, inArray, ne } from 'drizzle-orm'
 import { getDb, schema } from '@/db'
 import { CONFIRMATIONS } from './chain'
-import { advanceRoundIfComplete } from './payments'
+import { advanceRoundIfComplete, noteContributionPaid } from './payments'
 import { getBlockNumber, getTransfersTo } from './rpc'
 import { decodeTransferLog } from './verify'
 
@@ -77,14 +77,18 @@ export async function sweep(): Promise<SweepReport> {
   // Stay behind the head so a reorg cannot un-confirm what we just credited.
   const safeHead = head - BigInt(CONFIRMATIONS)
 
-  const openRounds = await db
+  // Every round still owed money, not just the open one. The cursor only moves
+  // forward, so a payment made before its round opens would otherwise fall
+  // behind the scan window and never be credited — which is precisely the case
+  // this sweep exists to catch.
+  const liveRounds = await db
     .select()
     .from(schema.rounds)
-    .where(eq(schema.rounds.status, 'open'))
+    .where(ne(schema.rounds.status, 'complete'))
 
   const from = await readCursor(safeHead)
 
-  if (openRounds.length === 0 || safeHead <= from) {
+  if (liveRounds.length === 0 || safeHead <= from) {
     await writeCursor(safeHead > 0n ? safeHead : 0n)
     return {
       scannedFrom: from.toString(),
@@ -96,15 +100,19 @@ export async function sweep(): Promise<SweepReport> {
     }
   }
 
-  const recipients = [...new Set(openRounds.map((r) => r.recipientAddress))]
-  const roundIds = openRounds.map((r) => r.id)
+  const recipients = [...new Set(liveRounds.map((r) => r.recipientAddress))]
+  const roundIds = liveRounds.map((r) => r.id)
+  const openRoundIds = new Set(liveRounds.filter((r) => r.status === 'open').map((r) => r.id))
 
-  const pending = (
-    await db
-      .select()
-      .from(schema.contributions)
-      .where(ne(schema.contributions.status, 'confirmed'))
-  ).filter((c) => roundIds.includes(c.roundId))
+  const pending = await db
+    .select()
+    .from(schema.contributions)
+    .where(
+      and(
+        ne(schema.contributions.status, 'confirmed'),
+        inArray(schema.contributions.roundId, roundIds),
+      ),
+    )
 
   let logsSeen = 0
   let confirmed = 0
@@ -134,7 +142,7 @@ export async function sweep(): Promise<SweepReport> {
       if (!match) continue
 
       try {
-        await db
+        const updated = await db
           .update(schema.contributions)
           .set({
             txHash: transfer.txHash,
@@ -148,8 +156,15 @@ export async function sweep(): Promise<SweepReport> {
               ne(schema.contributions.status, 'confirmed'),
             ),
           )
+          .returning({ id: schema.contributions.id })
 
         match.status = 'confirmed' // don't match the same row twice in this pass
+
+        // Nothing updated means the fast path confirmed it first; it already
+        // recorded the reputation event and counted the payment.
+        if (updated.length === 0) continue
+
+        await noteContributionPaid(match.roundId, match.fromAddress)
         confirmed += 1
         touchedRounds.add(match.roundId)
       } catch {
@@ -160,6 +175,7 @@ export async function sweep(): Promise<SweepReport> {
 
   let roundsAdvanced = 0
   for (const roundId of touchedRounds) {
+    if (!openRoundIds.has(roundId)) continue // an upcoming round settles when it opens
     if (await advanceRoundIfComplete(roundId)) roundsAdvanced += 1
   }
 
