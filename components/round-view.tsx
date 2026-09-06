@@ -39,9 +39,23 @@ export function RoundView({ data, onPaid }: { data: CircleDetail; onPaid: () => 
     try {
       for (let attempt = 0; attempt < 20; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 3000))
-        const { confirmed } = await recheckRound(roundId).catch(() => ({ confirmed: 0 }))
+        const { confirmed, released } = await recheckRound(roundId).catch(() => ({
+          confirmed: 0,
+          released: 0,
+        }))
+
         if (confirmed > 0) {
           setPending(false)
+          await onPaid()
+          return
+        }
+
+        // The transaction is dead — reverted, or it never carried this payment.
+        // The row has let go of the hash, so bring the button back and say why
+        // rather than leaving someone watching a spinner that will never end.
+        if (released > 0) {
+          setPending(false)
+          setError('That transaction did not go through. You can try paying again.')
           await onPaid()
           return
         }
@@ -66,9 +80,19 @@ export function RoundView({ data, onPaid }: { data: CircleDetail; onPaid: () => 
   const youReceive = round.recipientAddress === data.you
 
   const gasShort = pol !== null && Number(pol) < MIN_GAS_POL
+
+  /**
+   * A hash on an unconfirmed contribution means money is already on its way.
+   * Offering the button again invites a second real transfer that can never be
+   * credited — the round is already matched to the first one. Derived from the
+   * row rather than local state so a reload cannot resurrect the button.
+   */
+  const awaitingConfirmation = Boolean(mine?.txHash) && mine?.status !== 'confirmed'
+
   const canPay =
     Boolean(mine) &&
     mine?.status !== 'confirmed' &&
+    !awaitingConfirmation &&
     Boolean(walletAddress) &&
     walletAddress === session &&
     !walletMismatch &&
@@ -171,7 +195,7 @@ export function RoundView({ data, onPaid }: { data: CircleDetail; onPaid: () => 
         </div>
       )}
 
-      {pending && !error && (
+      {(pending || awaitingConfirmation) && !error && (
         <p className="mt-4 rounded-lg border border-border bg-surface-2 px-4 py-3 text-sm text-muted">
           Sent, waiting for the network to confirm. This usually takes a few seconds — you can
           leave this screen, it will still go through.
@@ -190,7 +214,7 @@ export function RoundView({ data, onPaid }: { data: CircleDetail; onPaid: () => 
         </div>
       )}
 
-      {mine && mine.status !== 'confirmed' && (
+      {mine && mine.status !== 'confirmed' && !awaitingConfirmation && (
         <button
           type="button"
           onClick={() => void pay()}

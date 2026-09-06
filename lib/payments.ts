@@ -250,7 +250,9 @@ export async function getOpenRoundsWithRecipients() {
  * Cheap to call: one receipt lookup per outstanding hash, and it stops as soon
  * as a contribution is confirmed.
  */
-export async function recheckPending(roundId: string): Promise<{ confirmed: number }> {
+export async function recheckPending(
+  roundId: string,
+): Promise<{ confirmed: number; released: number }> {
   const db = getDb()
 
   const rows = await db
@@ -264,9 +266,10 @@ export async function recheckPending(roundId: string): Promise<{ confirmed: numb
     )
 
   const withHash = rows.filter((r) => Boolean(r.txHash))
-  if (withHash.length === 0) return { confirmed: 0 }
+  if (withHash.length === 0) return { confirmed: 0, released: 0 }
 
   let confirmed = 0
+  let released = 0
 
   for (const row of withHash) {
     const result = await verifyTransaction(row.txHash as string, {
@@ -274,7 +277,28 @@ export async function recheckPending(roundId: string): Promise<{ confirmed: numb
       to: row.toAddress,
       amount: row.amount,
     })
-    if (!result.ok) continue
+
+    if (!result.ok) {
+      // Retryable means "not settled yet" — keep the hash and look again.
+      if (result.retryable) continue
+
+      // Anything else is final: the transaction reverted, or never contained
+      // this payment. Let the hash go, or the member is stuck looking at a
+      // dead transaction with no way to pay.
+      const cleared = await db
+        .update(schema.contributions)
+        .set({ txHash: null })
+        .where(
+          and(
+            eq(schema.contributions.id, row.id),
+            ne(schema.contributions.status, 'confirmed'),
+          ),
+        )
+        .returning({ id: schema.contributions.id })
+
+      if (cleared.length > 0) released += 1
+      continue
+    }
 
     // returning() is what tells us whether this call did the work or whether
     // the sweep got there first. Without it every racing caller would record a
@@ -302,5 +326,5 @@ export async function recheckPending(roundId: string): Promise<{ confirmed: numb
 
   if (confirmed > 0) await advanceRoundIfComplete(roundId)
 
-  return { confirmed }
+  return { confirmed, released }
 }
