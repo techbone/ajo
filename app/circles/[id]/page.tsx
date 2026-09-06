@@ -2,12 +2,14 @@
 
 import Link from 'next/link'
 import { use, useCallback, useEffect, useState } from 'react'
+import { ExternalLink } from 'lucide-react'
 import { WalletBanner } from '@/components/account-bar'
 import { AppShell } from '@/components/app-shell'
 import { RoundView } from '@/components/round-view'
 import { Button, Card, Notice, Pill } from '@/components/ui'
 import { WalletGate } from '@/components/wallet-gate'
 import { getCircle, lockCircle, type CircleDetail } from '@/lib/api-client'
+import { POLYGON } from '@/lib/chain'
 import { useLiveCircle } from '@/lib/use-live'
 import { formatDate, formatUsdt, frequencyLabel, relativeDays, shortAddress } from '@/lib/format'
 
@@ -166,6 +168,11 @@ function CircleView({ id }: { id: string }) {
           {rounds.map((round) => {
             const forRound = contributions.filter((c) => c.roundId === round.id)
             const paid = forRound.filter((c) => c.status === 'confirmed').length
+            // The active RoundView only ever shows the currently open round, so
+            // once a round completes — instantly, in a 2-person circle where a
+            // single payment closes it — this is the only place left to reach
+            // the transaction that proves it happened.
+            const yourRow = forRound.find((c) => c.fromAddress === you && c.txHash)
             return (
               <div
                 key={round.id}
@@ -190,6 +197,17 @@ function CircleView({ id }: { id: string }) {
                     {paid}/{forRound.length} paid · due {relativeDays(round.dueAt)}
                   </span>
                 </div>
+                {yourRow && (
+                  <a
+                    href={`${POLYGON.explorer}/tx/${yourRow.txHash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 flex items-center gap-1.5 text-xs text-muted underline underline-offset-2"
+                  >
+                    View your payment on Polygonscan
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
               </div>
             )
           })}
