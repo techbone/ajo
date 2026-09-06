@@ -8,6 +8,7 @@ import { useAjo } from '@/components/ajo-provider'
 import { Button, Card, Field, Notice, Pill, inputClass } from '@/components/ui'
 import { WalletGate } from '@/components/wallet-gate'
 import { createCircle, joinCircle, listCircles, type CircleDto } from '@/lib/api-client'
+import { useLiveCircleList } from '@/lib/use-live'
 import { MIN_GAS_POL, POLYGON } from '@/lib/chain'
 import { formatUsdt, frequencyLabel } from '@/lib/format'
 
@@ -38,6 +39,9 @@ function Dashboard() {
   useEffect(() => {
     void reload()
   }, [reload])
+
+  // A circle you joined can start while you are sitting on this screen.
+  useLiveCircleList({ enabled: circles !== null, onChange: reload })
 
   const gasShort = pol !== null && Number(pol) < MIN_GAS_POL
 

@@ -8,6 +8,7 @@ import { RoundView } from '@/components/round-view'
 import { Button, Card, Notice, Pill } from '@/components/ui'
 import { WalletGate } from '@/components/wallet-gate'
 import { getCircle, lockCircle, type CircleDetail } from '@/lib/api-client'
+import { useLiveCircle } from '@/lib/use-live'
 import { formatDate, formatUsdt, frequencyLabel, relativeDays, shortAddress } from '@/lib/format'
 
 export default function CirclePage({ params }: { params: Promise<{ id: string }> }) {
@@ -40,6 +41,15 @@ function CircleView({ id }: { id: string }) {
   useEffect(() => {
     void load()
   }, [load])
+
+  // Members waiting on someone else — the creator starting the circle, the last
+  // person paying — should see it happen without reaching for refresh. Stops
+  // once the circle is finished and there is nothing left to wait for.
+  useLiveCircle({
+    id,
+    enabled: data !== null && data.circle.status !== 'completed',
+    onChange: load,
+  })
 
   if (error) return <Notice tone="risk">{error}</Notice>
   if (!data) return <div className="h-40 animate-pulse rounded-xl border border-border bg-surface-2" />
