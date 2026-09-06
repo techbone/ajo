@@ -76,5 +76,15 @@ export const ERC20_TRANSFER_EVENT = [
 export const TRANSFER_TOPIC =
   '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 
-/** Confirmations before we treat a transfer as settled. Polygon reorgs are shallow. */
-export const CONFIRMATIONS = 3
+/**
+ * Confirmations before a transfer counts as settled.
+ *
+ * Nothing re-checks a payment once confirmed, so this depth is the only thing
+ * standing between a reorg and a contribution credited against money that no
+ * longer moved. Polygon reorgs are usually shallow but have run deeper than a
+ * handful of blocks, and three was optimistic for real savings.
+ *
+ * At roughly two seconds a block this costs about half a minute of waiting,
+ * which the pending state and re-check already cover.
+ */
+export const CONFIRMATIONS = 12
