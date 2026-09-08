@@ -9,6 +9,7 @@ import { RoundView } from '@/components/round-view'
 import { Button, Card, Notice, Pill } from '@/components/ui'
 import { WalletGate } from '@/components/wallet-gate'
 import { getCircle, lockCircle, type CircleDetail } from '@/lib/api-client'
+import { urgencyOf } from '@/lib/urgency'
 import { POLYGON } from '@/lib/chain'
 import { useLiveCircle } from '@/lib/use-live'
 import { formatDate, formatUsdt, frequencyLabel, relativeDays, shortAddress } from '@/lib/format'
@@ -173,6 +174,9 @@ function CircleView({ id }: { id: string }) {
             // single payment closes it — this is the only place left to reach
             // the transaction that proves it happened.
             const yourRow = forRound.find((c) => c.fromAddress === you && c.txHash)
+            // Only an open round can meaningfully be overdue — a round that
+            // hasn't started yet or has already settled has nothing pending.
+            const overdue = round.status === 'open' && paid < forRound.length && urgencyOf(round.dueAt) === 'overdue'
             return (
               <div
                 key={round.id}
@@ -193,7 +197,7 @@ function CircleView({ id }: { id: string }) {
                   <span>
                     to {shortAddress(round.recipientAddress)} · {formatDate(round.opensAt)}
                   </span>
-                  <span>
+                  <span className={overdue ? 'font-medium text-risk' : undefined}>
                     {paid}/{forRound.length} paid · due {relativeDays(round.dueAt)}
                   </span>
                 </div>

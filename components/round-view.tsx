@@ -1,12 +1,14 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Check, Clock, ExternalLink } from 'lucide-react'
+import { AlertTriangle, Check, Clock, ExternalLink, Share2 } from 'lucide-react'
 import { useAjo } from './ajo-provider'
 import { Card, Notice, Pill } from './ui'
 import { recordContribution, recheckRound, type CircleDetail } from '@/lib/api-client'
 import { MIN_GAS_POL, POLYGON, USDT } from '@/lib/chain'
 import { formatUsdt, relativeDays, shortAddress } from '@/lib/format'
+import { buildNudgeMessage, shareNudge } from '@/lib/nudge'
+import { urgencyOf } from '@/lib/urgency'
 import { describePayError, sendContribution } from '@/lib/pay'
 import { getProvider } from '@/lib/wallet'
 
@@ -19,6 +21,8 @@ export function RoundView({ data, onPaid }: { data: CircleDetail; onPaid: () => 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+  const [nudging, setNudging] = useState(false)
+  const [nudgeNotice, setNudgeNotice] = useState<string | null>(null)
   const polling = useRef(false)
 
   const round = data.rounds.find((r) => r.status === 'open')
@@ -74,11 +78,13 @@ export function RoundView({ data, onPaid }: { data: CircleDetail; onPaid: () => 
 
   const forRound = data.contributions.filter((c) => c.roundId === round.id)
   const mine = forRound.find((c) => c.fromAddress === data.you)
+  const unpaidMembers = forRound.filter((c) => c.status !== 'confirmed').map((c) => c.fromAddress)
   const paid = forRound.filter((c) => c.status === 'confirmed')
   const pot = forRound.reduce((sum, c) => sum + BigInt(c.amount), 0n)
   const collected = paid.reduce((sum, c) => sum + BigInt(c.amount), 0n)
   const youReceive = round.recipientAddress === data.you
 
+  const urgency = urgencyOf(round.dueAt)
   const gasShort = pol !== null && Number(pol) < MIN_GAS_POL
 
   /**
@@ -97,6 +103,29 @@ export function RoundView({ data, onPaid }: { data: CircleDetail; onPaid: () => 
     walletAddress === session &&
     !walletMismatch &&
     !gasShort
+
+  const nudge = async () => {
+    setNudgeNotice(null)
+    setNudging(true)
+    try {
+      const message = buildNudgeMessage({
+        circleName: data.circle.name,
+        amount: formatUsdt(data.circle.contributionAmount),
+        recipientAddress: round.recipientAddress,
+        dueAt: round.dueAt,
+        outstanding: unpaidMembers,
+        url: typeof window !== 'undefined' ? window.location.href : '',
+      })
+      const result = await shareNudge(message)
+      if (result.method === 'clipboard' && result.ok) {
+        setNudgeNotice('Copied — paste it into your group chat.')
+      } else if (!result.ok && result.method !== 'share') {
+        setNudgeNotice('Could not share automatically. Copy the invite link instead.')
+      }
+    } finally {
+      setNudging(false)
+    }
+  }
 
   const pay = async () => {
     const provider = getProvider()
@@ -140,7 +169,20 @@ export function RoundView({ data, onPaid }: { data: CircleDetail; onPaid: () => 
             ) : (
               <>to {shortAddress(round.recipientAddress)}</>
             )}{' '}
-            · due {relativeDays(round.dueAt)}
+            ·{' '}
+            <span
+              className={
+                paid.length === forRound.length
+                  ? undefined
+                  : urgency === 'overdue'
+                    ? 'font-medium text-risk'
+                    : urgency === 'soon'
+                      ? 'font-medium text-warn'
+                      : undefined
+              }
+            >
+              due {relativeDays(round.dueAt)}
+            </span>
           </p>
         </div>
         <Pill tone={paid.length === forRound.length ? 'good' : 'accent'}>
@@ -154,6 +196,29 @@ export function RoundView({ data, onPaid }: { data: CircleDetail; onPaid: () => 
           style={{ width: `${pot > 0n ? Number((collected * 100n) / pot) : 0}%` }}
         />
       </div>
+
+      {urgency === 'overdue' && unpaidMembers.length > 0 && (
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-border bg-risk-bg px-4 py-3">
+          <p className="flex items-center gap-2 text-sm text-risk">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {unpaidMembers.length === 1 ? 'Someone hasn\u2019t' : `${unpaidMembers.length} people haven\u2019t`}{' '}
+            paid — this round is overdue.
+          </p>
+          <button
+            type="button"
+            onClick={() => void nudge()}
+            disabled={nudging}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-ink disabled:opacity-50"
+          >
+            <Share2 className="h-3.5 w-3.5" />
+            {nudging ? 'Sharing…' : 'Nudge'}
+          </button>
+        </div>
+      )}
+
+      {nudgeNotice && (
+        <p className="mt-2 text-xs text-muted">{nudgeNotice}</p>
+      )}
 
       <ul className="mt-5 flex flex-col gap-2.5">
         {forRound.map((c) => (
