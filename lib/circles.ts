@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import { parseUnits } from 'viem'
 import { getDb, schema } from '@/db'
 import { USDT } from './chain'
@@ -255,14 +255,71 @@ export async function getCircleForMember(circleId: string, address: string) {
   return { circle, members, rounds, contributions }
 }
 
+/**
+ * Every circle this person belongs to, ordered by what actually needs them.
+ *
+ * Creation order buries a circle you owe money to underneath finished ones,
+ * which is the opposite of useful — this screen's job is to answer "what do I
+ * do right now". `youOwe` is computed in the same query rather than fetched
+ * per circle, so the list stays one round trip however many circles there are.
+ */
 export async function listCirclesFor(address: string) {
-  const db = getDb()
-  const rows = await db
-    .select({ circle: schema.circles })
-    .from(schema.members)
-    .innerJoin(schema.circles, eq(schema.circles.id, schema.members.circleId))
-    .where(eq(schema.members.address, address))
-    .orderBy(asc(schema.circles.createdAt))
+  const result = await getDb().execute(sql`
+    select
+      c.id,
+      c.name,
+      c.token::text                     as token,
+      c.contribution_amount::text       as contribution_amount,
+      c.frequency::text                 as frequency,
+      c.size,
+      c.status::text                    as status,
+      c.creator_address,
+      c.invite_code,
+      c.starts_at,
+      c.locked_at,
+      c.created_at,
+      exists(
+        select 1 from rounds r
+        join contributions co on co.round_id = r.id
+        where r.circle_id = c.id
+          and r.status = 'open'
+          and co.from_address = ${address}
+          and co.status <> 'confirmed'
+      ) as you_owe
+    from members m
+    join circles c on c.id = m.circle_id
+    where m.address = ${address}
+    order by
+      case
+        when c.status = 'active' and exists(
+          select 1 from rounds r
+          join contributions co on co.round_id = r.id
+          where r.circle_id = c.id and r.status = 'open'
+            and co.from_address = ${address} and co.status <> 'confirmed'
+        ) then 0
+        when c.status = 'active'    then 1
+        when c.status = 'forming'   then 2
+        else 3
+      end,
+      c.created_at desc
+  `)
 
-  return rows.map((r) => r.circle)
+  const rows = (result as unknown as { rows: Record<string, unknown>[] }).rows
+
+  return rows.map((r) => ({
+    id: String(r.id),
+    name: String(r.name),
+    token: String(r.token) as 'USDT_POLYGON' | 'NIM',
+    contributionAmount: BigInt(String(r.contribution_amount)),
+    frequency: String(r.frequency) as Frequency,
+    size: Number(r.size),
+    status: String(r.status) as 'forming' | 'active' | 'completed' | 'broken',
+    creatorAddress: String(r.creator_address),
+    inviteCode: String(r.invite_code),
+    startsAt: r.starts_at as Date | null,
+    lockedAt: r.locked_at as Date | null,
+    createdAt: r.created_at as Date,
+    youOwe: Boolean(r.you_owe),
+  }))
 }
+

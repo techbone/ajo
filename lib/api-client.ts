@@ -11,6 +11,8 @@ export interface CircleDto {
   startsAt: string | null
   lockedAt: string | null
   createdAt: string
+  /** Present on the list endpoint: you owe money in this circle's open round. */
+  youOwe?: boolean
 }
 
 export interface MemberDto {

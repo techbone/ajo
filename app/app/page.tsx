@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { ChevronDown } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { WalletBanner } from '@/components/account-bar'
 import { AppShell } from '@/components/app-shell'
@@ -80,21 +81,21 @@ function Dashboard() {
 
       {error && <Notice>{error}</Notice>}
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-xs uppercase tracking-widest text-faint">Your circles</h2>
-        {circles === null ? (
-          <div className="h-20 animate-pulse rounded-xl border border-border bg-surface-2" />
-        ) : circles.length === 0 ? (
+      {circles === null ? (
+        <div className="h-20 animate-pulse rounded-xl border border-border bg-surface-2" />
+      ) : circles.length === 0 ? (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-xs uppercase tracking-widest text-faint">Your circles</h2>
           <Card>
             <p className="text-sm text-muted">
               You are not in a circle yet. Start one and invite people you trust, or join with a
               code someone gave you.
             </p>
           </Card>
-        ) : (
-          circles.map((circle) => <CircleRow key={circle.id} circle={circle} />)
-        )}
-      </section>
+        </section>
+      ) : (
+        <CircleSections circles={circles} />
+      )}
 
       {mode === 'none' && (
         <div className="flex flex-col gap-3">
@@ -111,6 +112,89 @@ function Dashboard() {
   )
 }
 
+/**
+ * The list's job is to answer "what do I do right now", so circles needing
+ * payment come first and finished ones fold away. Nothing is deleted — a
+ * completed circle holds the record of who paid, which is the whole point of
+ * Ajo, so it is put out of the way rather than destroyed.
+ */
+function CircleSections({ circles }: { circles: CircleDto[] }) {
+  const [showDone, setShowDone] = useState(false)
+
+  const needsYou = circles.filter((c) => c.status === 'active' && c.youOwe)
+  const running = circles.filter((c) => c.status === 'active' && !c.youOwe)
+  const forming = circles.filter((c) => c.status === 'forming')
+  const done = circles.filter((c) => c.status !== 'active' && c.status !== 'forming')
+
+  return (
+    <div className="flex flex-col gap-6">
+      {needsYou.length > 0 && (
+        <Group label={needsYou.length === 1 ? 'Needs you' : `Needs you (${needsYou.length})`} tone="accent">
+          {needsYou.map((c) => (
+            <CircleRow key={c.id} circle={c} />
+          ))}
+        </Group>
+      )}
+
+      {running.length > 0 && (
+        <Group label="Running">
+          {running.map((c) => (
+            <CircleRow key={c.id} circle={c} />
+          ))}
+        </Group>
+      )}
+
+      {forming.length > 0 && (
+        <Group label="Forming">
+          {forming.map((c) => (
+            <CircleRow key={c.id} circle={c} />
+          ))}
+        </Group>
+      )}
+
+      {done.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => setShowDone((v) => !v)}
+            className="flex items-center justify-between text-xs uppercase tracking-widest text-faint"
+            aria-expanded={showDone}
+          >
+            <span>Completed ({done.length})</span>
+            <ChevronDown
+              className={`h-4 w-4 transition-transform ${showDone ? 'rotate-180' : ''}`}
+            />
+          </button>
+          {showDone && done.map((c) => <CircleRow key={c.id} circle={c} />)}
+        </section>
+      )}
+    </div>
+  )
+}
+
+function Group({
+  label,
+  tone = 'muted',
+  children,
+}: {
+  label: string
+  tone?: 'muted' | 'accent'
+  children: React.ReactNode
+}) {
+  return (
+    <section className="flex flex-col gap-3">
+      <h2
+        className={`text-xs uppercase tracking-widest ${
+          tone === 'accent' ? 'text-accent' : 'text-faint'
+        }`}
+      >
+        {label}
+      </h2>
+      {children}
+    </section>
+  )
+}
+
 function CircleRow({ circle }: { circle: CircleDto }) {
   return (
     <Link href={`/circles/${circle.id}`} className="block">
@@ -122,8 +206,16 @@ function CircleRow({ circle }: { circle: CircleDto }) {
               {formatUsdt(circle.contributionAmount)} USDT {frequencyLabel(circle.frequency)}
             </p>
           </div>
-          <Pill tone={circle.status === 'active' ? 'good' : 'muted'}>
-            {circle.status === 'forming' ? 'Forming' : circle.status}
+          <Pill
+            tone={
+              circle.youOwe ? 'accent' : circle.status === 'active' ? 'good' : 'muted'
+            }
+          >
+            {circle.youOwe
+              ? 'You owe'
+              : circle.status === 'forming'
+                ? 'Forming'
+                : circle.status}
           </Pill>
         </div>
       </Card>
