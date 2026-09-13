@@ -1,7 +1,7 @@
 import { and, eq, inArray, ne } from 'drizzle-orm'
 import { getDb, schema } from '@/db'
 import { CONFIRMATIONS } from './chain'
-import { advanceRoundIfComplete, noteContributionPaid } from './payments'
+import { advanceRoundIfComplete, noteContributionPaid, openDueRounds } from './payments'
 import { getBlockNumber, getTransfersTo } from './rpc'
 import { decodeTransferLog } from './verify'
 
@@ -43,6 +43,7 @@ export interface SweepReport {
   logsSeen: number
   confirmed: number
   roundsAdvanced: number
+  roundsOpened: number
 }
 
 async function readCursor(head: bigint): Promise<bigint> {
@@ -72,6 +73,11 @@ async function writeCursor(block: bigint): Promise<void> {
 
 export async function sweep(): Promise<SweepReport> {
   const db = getDb()
+
+  // Rounds whose date has arrived open first, so their contributions are
+  // among the ones this pass can settle.
+  const roundsOpened = await openDueRounds()
+
   const head = await getBlockNumber()
 
   // Stay behind the head so a reorg cannot un-confirm what we just credited.
@@ -97,6 +103,7 @@ export async function sweep(): Promise<SweepReport> {
       logsSeen: 0,
       confirmed: 0,
       roundsAdvanced: 0,
+      roundsOpened,
     }
   }
 
@@ -188,5 +195,6 @@ export async function sweep(): Promise<SweepReport> {
     logsSeen,
     confirmed,
     roundsAdvanced,
+    roundsOpened,
   }
 }

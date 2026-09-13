@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, Check, Clock, ExternalLink, Share2 } from 'lucide-react'
+import { AlertTriangle, CalendarClock, Check, Clock, ExternalLink, Share2 } from 'lucide-react'
 import { useAjo } from './ajo-provider'
 import { Card, Notice, Pill } from './ui'
 import { recordContribution, recheckRound, type CircleDetail } from '@/lib/api-client'
@@ -74,7 +74,35 @@ export function RoundView({ data, onPaid }: { data: CircleDetail; onPaid: () => 
     if (hasUnconfirmed) void watch()
   }, [hasUnconfirmed, watch])
 
-  if (!round) return null
+  // Between rounds: the last one closed early and the next waits for its date.
+  // A blank space here would read as broken, so say what is happening.
+  if (!round) {
+    if (data.circle.status !== 'active') return null
+    const next = [...data.rounds]
+      .filter((r) => r.status === 'upcoming')
+      .sort((a, b) => a.index - b.index)[0]
+    if (!next) return null
+
+    const youReceiveNext = next.recipientAddress === data.you
+    return (
+      <Card>
+        <p className="flex items-center gap-2 text-xs uppercase tracking-widest text-faint">
+          <CalendarClock className="h-3.5 w-3.5" />
+          Next up
+        </p>
+        <p className="mt-2 text-lg font-semibold">
+          Round {next.index} opens {relativeDays(next.opensAt)}
+        </p>
+        <p className="mt-1 text-sm text-muted">
+          {youReceiveNext
+            ? 'That one pays out to you.'
+            : `It pays out to ${shortAddress(next.recipientAddress)}.`}{' '}
+          Rounds open on their schedule, even when everyone has already paid the last one —
+          the rhythm is what makes this a savings circle.
+        </p>
+      </Card>
+    )
+  }
 
   const forRound = data.contributions.filter((c) => c.roundId === round.id)
   const mine = forRound.find((c) => c.fromAddress === data.you)

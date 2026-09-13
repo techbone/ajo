@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, ne } from 'drizzle-orm'
+import { and, asc, eq, inArray, lte, ne } from 'drizzle-orm'
 import { getDb, schema } from '@/db'
 import { CircleError } from './circles'
 import { verifyTransaction } from './verify'
@@ -202,11 +202,77 @@ export async function advanceRoundIfComplete(roundId: string): Promise<boolean> 
       break
     }
 
+    // The rotation keeps its rhythm. Everyone paying round 1 in an hour closes
+    // round 1, but round 2 still waits for its date — the time between rounds
+    // is what makes this a savings circle rather than a pointless shuffle of
+    // the same money. openDueRounds() opens it when the day arrives.
+    if (next.opensAt.getTime() > Date.now()) break
+
     await db.update(schema.rounds).set({ status: 'open' }).where(eq(schema.rounds.id, next.id))
     currentId = next.id
   }
 
   return advanced
+}
+
+/**
+ * Open any round whose date has arrived.
+ *
+ * Called from the sweep on a schedule and from the circle page on load, so a
+ * round opens on time whether or not anyone is looking. A round already paid
+ * in full while it was upcoming settles the moment it opens.
+ */
+export async function openDueRounds(circleId?: string): Promise<number> {
+  const db = getDb()
+  const now = new Date()
+
+  const candidates = await db
+    .select({
+      id: schema.rounds.id,
+      circleId: schema.rounds.circleId,
+      index: schema.rounds.index,
+    })
+    .from(schema.rounds)
+    .innerJoin(schema.circles, eq(schema.circles.id, schema.rounds.circleId))
+    .where(
+      and(
+        eq(schema.rounds.status, 'upcoming'),
+        eq(schema.circles.status, 'active'),
+        lte(schema.rounds.opensAt, now),
+        circleId ? eq(schema.rounds.circleId, circleId) : undefined,
+      ),
+    )
+    .orderBy(asc(schema.rounds.circleId), asc(schema.rounds.index))
+
+  let opened = 0
+  const seen = new Set<string>()
+
+  for (const round of candidates) {
+    // Only the earliest due round per circle; later ones open as it cascades.
+    if (seen.has(round.circleId)) continue
+    seen.add(round.circleId)
+
+    // Never open a second round while one is still collecting.
+    const [stillOpen] = await db
+      .select({ id: schema.rounds.id })
+      .from(schema.rounds)
+      .where(and(eq(schema.rounds.circleId, round.circleId), eq(schema.rounds.status, 'open')))
+      .limit(1)
+    if (stillOpen) continue
+
+    // Conditional so two callers racing on the same round open it once.
+    const [flipped] = await db
+      .update(schema.rounds)
+      .set({ status: 'open' })
+      .where(and(eq(schema.rounds.id, round.id), eq(schema.rounds.status, 'upcoming')))
+      .returning({ id: schema.rounds.id })
+    if (!flipped) continue
+
+    opened += 1
+    await advanceRoundIfComplete(round.id)
+  }
+
+  return opened
 }
 
 /** Record that a member paid, whichever path proved it. Safe to call twice. */

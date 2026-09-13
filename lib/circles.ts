@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import { parseUnits } from 'viem'
 import { getDb, schema } from '@/db'
 import { USDT } from './chain'
+import { openDueRounds } from './payments'
 
 export type Frequency = (typeof schema.frequencyEnum.enumValues)[number]
 
@@ -185,14 +186,20 @@ export async function lockCircle(params: {
     ),
   )
 
-  const roundRows = order.map((recipient, i) => ({
-    circleId: circle.id,
-    index: i + 1,
-    recipientAddress: recipient,
-    opensAt: addInterval(startsAt, circle.frequency, i),
-    dueAt: addInterval(startsAt, circle.frequency, i + 1),
-    status: (i === 0 ? 'open' : 'upcoming') as 'open' | 'upcoming',
-  }))
+  const now = Date.now()
+  const roundRows = order.map((recipient, i) => {
+    const opensAt = addInterval(startsAt, circle.frequency, i)
+    return {
+      circleId: circle.id,
+      index: i + 1,
+      recipientAddress: recipient,
+      opensAt,
+      dueAt: addInterval(startsAt, circle.frequency, i + 1),
+      // Round 1 opens now only if the circle starts now; a future start date
+      // leaves it upcoming until openDueRounds() reaches it.
+      status: (i === 0 && opensAt.getTime() <= now ? 'open' : 'upcoming') as 'open' | 'upcoming',
+    }
+  })
 
   const rounds = await db.insert(schema.rounds).values(roundRows).returning()
 
@@ -221,6 +228,10 @@ export async function lockCircle(params: {
 
 export async function getCircleForMember(circleId: string, address: string) {
   const db = getDb()
+
+  // A round whose day has come opens when someone looks, not only when the
+  // cron gets around to it.
+  await openDueRounds(circleId)
 
   const [circle] = await db
     .select()
