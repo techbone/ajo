@@ -1,6 +1,7 @@
 import { decodeEventLog } from 'viem'
 import { CONFIRMATIONS, ERC20_TRANSFER_EVENT, TRANSFER_TOPIC, USDT } from './chain'
 import { getBlockNumber, getTransactionReceipt, type RawLog, type TxReceipt } from './rpc'
+import { getNimTransaction, NIM_CONFIRMATIONS, normaliseNimAddress, type NimTransaction } from './nim-rpc'
 
 /**
  * Proving a contribution really happened.
@@ -150,4 +151,48 @@ export function decodeTransferLog(
   } catch {
     return null
   }
+}
+
+/**
+ * NIM verification. Plainer than USDT: the node hands back sender, recipient,
+ * value, confirmations and whether it executed — no logs to decode.
+ */
+export async function verifyNimTransaction(
+  txHash: string,
+  expected: { fromNim: string; toNim: string; amountLuna: bigint },
+): Promise<VerifyResult> {
+  if (!/^[0-9a-fA-F]{64}$/.test(txHash)) {
+    return { ok: false, reason: 'That is not a Nimiq transaction hash.', retryable: false }
+  }
+
+  let tx: NimTransaction | null
+  try {
+    tx = await getNimTransaction(txHash)
+  } catch (error) {
+    return {
+      ok: false,
+      reason: error instanceof Error ? error.message : 'Could not reach the Nimiq network.',
+      retryable: true,
+    }
+  }
+
+  if (!tx) return { ok: false, reason: 'Not confirmed yet.', retryable: true }
+
+  if (!tx.executionResult) {
+    return { ok: false, reason: 'That transaction failed on-chain.', retryable: false }
+  }
+  if (normaliseNimAddress(tx.from) !== normaliseNimAddress(expected.fromNim)) {
+    return { ok: false, reason: 'That transaction was not sent from your Nimiq address.', retryable: false }
+  }
+  if (normaliseNimAddress(tx.to) !== normaliseNimAddress(expected.toNim)) {
+    return { ok: false, reason: 'That transaction did not go to this round’s recipient.', retryable: false }
+  }
+  if (BigInt(tx.value) < expected.amountLuna) {
+    return { ok: false, reason: 'That payment was less than the contribution.', retryable: false }
+  }
+  if (tx.confirmations < NIM_CONFIRMATIONS) {
+    return { ok: false, reason: 'Waiting for confirmations.', retryable: true }
+  }
+
+  return { ok: true, blockNumber: BigInt(tx.blockNumber), amount: BigInt(tx.value) }
 }

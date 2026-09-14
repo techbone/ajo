@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createCircle, listCirclesFor, type Frequency } from '@/lib/circles'
+import { createCircle, listCirclesFor, type CircleToken, type Frequency } from '@/lib/circles'
 import { errorResponse, requireAddress } from '@/lib/api'
 
 export const dynamic = 'force-dynamic'
@@ -24,6 +24,7 @@ export async function POST(request: Request) {
       amount?: string
       frequency?: Frequency
       size?: number
+      token?: CircleToken
     }
 
     const circle = await createCircle({
@@ -32,6 +33,7 @@ export async function POST(request: Request) {
       amount: body.amount ?? '0',
       frequency: body.frequency ?? 'weekly',
       size: Number(body.size ?? 0),
+      token: body.token === 'NIM' ? 'NIM' : 'USDT_POLYGON',
     })
 
     return NextResponse.json(

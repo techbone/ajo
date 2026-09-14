@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import { parseUnits } from 'viem'
 import { getDb, schema } from '@/db'
 import { USDT } from './chain'
+import { isNimAddress, parseNim } from './nim-rpc'
 import { openDueRounds } from './payments'
 
 export type Frequency = (typeof schema.frequencyEnum.enumValues)[number]
@@ -41,26 +42,48 @@ export class CircleError extends Error {
   }
 }
 
+export type CircleToken = (typeof schema.tokenEnum.enumValues)[number]
+
+/** The raw on-chain integer for a human amount, in whichever unit the token uses. */
+export function parseContribution(amount: string, token: CircleToken): bigint {
+  try {
+    return token === 'NIM' ? parseNim(amount) : parseUnits(amount, USDT.decimals)
+  } catch {
+    throw new CircleError('That contribution amount is not a valid number.')
+  }
+}
+
+/** A NIM circle pays out to Nimiq addresses, so every member must have one linked. */
+async function requireNimAddress(address: string): Promise<void> {
+  const [user] = await getDb()
+    .select({ nimAddress: schema.users.nimAddress })
+    .from(schema.users)
+    .where(eq(schema.users.address, address))
+    .limit(1)
+  if (!user?.nimAddress || !isNimAddress(user.nimAddress)) {
+    throw new CircleError('Link your Nimiq address first — this circle pays out in NIM.', 412)
+  }
+}
+
 export async function createCircle(params: {
   creator: string
   name: string
   amount: string
   frequency: Frequency
   size: number
+  token?: CircleToken
   startsAt?: Date
 }) {
   const { creator, name, amount, frequency, size } = params
+  const token: CircleToken = params.token ?? 'USDT_POLYGON'
 
   if (!name.trim()) throw new CircleError('Give the circle a name.')
   if (size < 2 || size > 20) throw new CircleError('A circle needs between 2 and 20 people.')
 
-  let contributionAmount: bigint
-  try {
-    contributionAmount = parseUnits(amount, USDT.decimals)
-  } catch {
-    throw new CircleError('That contribution amount is not a valid number.')
-  }
+  const contributionAmount = parseContribution(amount, token)
   if (contributionAmount <= 0n) throw new CircleError('The contribution must be more than zero.')
+
+  if (token === 'NIM') await requireNimAddress(creator)
 
   const db = getDb()
 
@@ -68,6 +91,7 @@ export async function createCircle(params: {
     .insert(schema.circles)
     .values({
       name: name.trim(),
+      token,
       contributionAmount,
       frequency,
       size,
@@ -116,6 +140,8 @@ export async function joinCircle(params: { address: string; inviteCode: string }
   if (members.length >= circle.size) {
     throw new CircleError('That circle is already full.', 409)
   }
+
+  if (circle.token === 'NIM') await requireNimAddress(params.address)
 
   await db.insert(schema.members).values({ circleId: circle.id, address: params.address })
 

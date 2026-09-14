@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray, lte, ne } from 'drizzle-orm'
 import { getDb, schema } from '@/db'
 import { CircleError } from './circles'
-import { verifyTransaction } from './verify'
+import { verifyNimTransaction, verifyTransaction, type VerifyResult } from './verify'
 
 /**
  * Postgres unique-violation, raised when a tx hash is already credited.
@@ -26,6 +26,55 @@ function isDuplicateTxHash(error: unknown): boolean {
  * That, plus the unique index on tx_hash, is what makes the operation safe to
  * run twice, and safe for both verification paths to race on.
  */
+
+/**
+ * Verify a contribution against whichever chain its circle runs on.
+ *
+ * Identity is always the EVM address — that is what a contribution row holds
+ * for from and to. A NIM circle needs the Nimiq address behind each of those,
+ * which the member linked to their account; if either side has none, the
+ * payment cannot be verified and says so rather than guessing.
+ */
+async function verifyContribution(
+  contribution: { roundId: string; fromAddress: string; toAddress: string; amount: bigint },
+  txHash: string,
+): Promise<VerifyResult> {
+  const db = getDb()
+
+  const [row] = await db
+    .select({ token: schema.circles.token })
+    .from(schema.rounds)
+    .innerJoin(schema.circles, eq(schema.circles.id, schema.rounds.circleId))
+    .where(eq(schema.rounds.id, contribution.roundId))
+    .limit(1)
+
+  if (!row) return { ok: false, reason: 'Round not found.', retryable: false }
+
+  if (row.token === 'USDT_POLYGON') {
+    return verifyTransaction(txHash, {
+      from: contribution.fromAddress,
+      to: contribution.toAddress,
+      amount: contribution.amount,
+    })
+  }
+
+  const people = await db
+    .select({ address: schema.users.address, nimAddress: schema.users.nimAddress })
+    .from(schema.users)
+    .where(inArray(schema.users.address, [contribution.fromAddress, contribution.toAddress]))
+
+  const fromNim = people.find((p) => p.address === contribution.fromAddress)?.nimAddress
+  const toNim = people.find((p) => p.address === contribution.toAddress)?.nimAddress
+
+  if (!fromNim) {
+    return { ok: false, reason: 'Link your Nimiq address before paying a NIM circle.', retryable: false }
+  }
+  if (!toNim) {
+    return { ok: false, reason: 'The recipient has not linked a Nimiq address yet.', retryable: false }
+  }
+
+  return verifyNimTransaction(txHash, { fromNim, toNim, amountLuna: contribution.amount })
+}
 
 export async function submitContribution(params: {
   roundId: string
@@ -53,11 +102,7 @@ export async function submitContribution(params: {
     return { status: 'confirmed' as const, alreadyRecorded: true }
   }
 
-  const result = await verifyTransaction(params.txHash, {
-    from,
-    to: contribution.toAddress,
-    amount: contribution.amount,
-  })
+  const result = await verifyContribution(contribution, params.txHash)
 
   if (!result.ok) {
     // Still being mined is not an error — hold the hash and let the sweep finish.
@@ -338,11 +383,7 @@ export async function recheckPending(
   let released = 0
 
   for (const row of withHash) {
-    const result = await verifyTransaction(row.txHash as string, {
-      from: row.fromAddress,
-      to: row.toAddress,
-      amount: row.amount,
-    })
+    const result = await verifyContribution(row, row.txHash as string)
 
     if (!result.ok) {
       // Retryable means "not settled yet" — keep the hash and look again.
