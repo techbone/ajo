@@ -9,9 +9,10 @@ import { useAjo } from '@/components/ajo-provider'
 import { Button, Card, Field, Notice, Pill, inputClass } from '@/components/ui'
 import { WalletGate } from '@/components/wallet-gate'
 import { createCircle, joinCircle, listCircles, type CircleDto } from '@/lib/api-client'
+import { Link2 } from 'lucide-react'
 import { useLiveCircleList } from '@/lib/use-live'
 import { MIN_GAS_POL, POLYGON } from '@/lib/chain'
-import { formatUsdt, frequencyLabel } from '@/lib/format'
+import { formatContribution, formatUsdt, frequencyLabel, tokenSymbol } from '@/lib/format'
 
 export default function Home() {
   return (
@@ -24,7 +25,7 @@ export default function Home() {
 }
 
 function Dashboard() {
-  const { usdt, pol, refresh } = useAjo()
+  const { usdt, pol, nim, nimAddress, linkNim, busy, refresh } = useAjo()
   const [circles, setCircles] = useState<CircleDto[] | null>(null)
   const [mode, setMode] = useState<'none' | 'create' | 'join'>('none')
   const [error, setError] = useState<string | null>(null)
@@ -66,6 +67,28 @@ function Dashboard() {
             Refresh
           </button>
         </div>
+
+        {nimAddress ? (
+          <div className="mt-4 flex items-end justify-between border-t border-border pt-4">
+            <div>
+              <p className="text-xs uppercase tracking-widest text-faint">Your NIM</p>
+              <p className="mt-1 text-2xl font-bold tabular-nums">
+                {nim === null ? '—' : Number(nim).toLocaleString('en-US', { maximumFractionDigits: 2 })}
+              </p>
+            </div>
+            <p className="font-mono text-[11px] text-faint">{nimAddress.slice(0, 9)}…</p>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => void linkNim()}
+            disabled={busy === 'nim'}
+            className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm text-muted disabled:opacity-50"
+          >
+            <Link2 className="h-4 w-4" />
+            {busy === 'nim' ? 'Linking…' : 'Link Nimiq address for NIM circles'}
+          </button>
+        )}
       </Card>
 
       {gasShort && (
@@ -203,7 +226,8 @@ function CircleRow({ circle }: { circle: CircleDto }) {
           <div>
             <p className="font-semibold">{circle.name}</p>
             <p className="mt-0.5 text-sm text-muted">
-              {formatUsdt(circle.contributionAmount)} USDT {frequencyLabel(circle.frequency)}
+              {formatContribution(circle.contributionAmount, circle.token)} {tokenSymbol(circle.token)}{' '}
+              {frequencyLabel(circle.frequency)}
             </p>
           </div>
           <Pill
@@ -227,6 +251,8 @@ function CreateForm({ onDone, onCancel }: { onDone: () => Promise<void>; onCance
   const [name, setName] = useState('')
   const [amount, setAmount] = useState('50')
   const [frequency, setFrequency] = useState<CircleDto['frequency']>('weekly')
+  const [token, setToken] = useState<CircleDto['token']>('USDT_POLYGON')
+  const { nimAddress, linkNim, busy: ajoBusy } = useAjo()
   const [size, setSize] = useState('5')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -235,7 +261,7 @@ function CreateForm({ onDone, onCancel }: { onDone: () => Promise<void>; onCance
     setBusy(true)
     setError(null)
     try {
-      await createCircle({ name, amount, frequency, size: Number(size) })
+      await createCircle({ name, amount, frequency, size: Number(size), token })
       await onDone()
       onCancel()
     } catch (e) {
@@ -260,8 +286,42 @@ function CreateForm({ onDone, onCancel }: { onDone: () => Promise<void>; onCance
           />
         </Field>
 
+        <Field label="Paid in">
+          <div className="grid grid-cols-2 gap-2">
+            {(['USDT_POLYGON', 'NIM'] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setToken(t)}
+                className={`rounded-lg border px-4 py-3 text-sm font-medium ${
+                  token === t ? 'border-accent bg-accent text-accent-ink' : 'border-border bg-surface-2 text-muted'
+                }`}
+              >
+                {tokenSymbol(t)}
+                <span className="block text-[11px] font-normal opacity-75">
+                  {t === 'NIM' ? 'Nimiq network' : 'on Polygon'}
+                </span>
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        {token === 'NIM' && !nimAddress && (
+          <div className="rounded-lg border border-border bg-warn-bg px-4 py-3 text-sm">
+            <p className="text-warn">A NIM circle pays out to Nimiq addresses.</p>
+            <button
+              type="button"
+              onClick={() => void linkNim()}
+              disabled={ajoBusy === 'nim'}
+              className="mt-2 text-sm font-medium text-ink underline underline-offset-2 disabled:opacity-50"
+            >
+              {ajoBusy === 'nim' ? 'Linking…' : 'Link your Nimiq address first'}
+            </button>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Each pays (USDT)">
+          <Field label={`Each pays (${tokenSymbol(token)})`}>
             <input
               className={inputClass}
               inputMode="decimal"
@@ -295,7 +355,7 @@ function CreateForm({ onDone, onCancel }: { onDone: () => Promise<void>; onCance
         {Number.isFinite(total) && total > 0 && (
           <p className="rounded-lg bg-surface-2 px-4 py-3 text-sm text-muted">
             Each round, one member receives{' '}
-            <strong className="text-ink">{total.toLocaleString('en-US')} USDT</strong>. After{' '}
+            <strong className="text-ink">{total.toLocaleString('en-US')} {tokenSymbol(token)}</strong>. After{' '}
             {size} rounds everyone has had one payout.
           </p>
         )}
@@ -303,7 +363,7 @@ function CreateForm({ onDone, onCancel }: { onDone: () => Promise<void>; onCance
         {error && <Notice>{error}</Notice>}
 
         <div className="flex flex-col gap-2">
-          <Button onClick={() => void submit()} disabled={busy}>
+          <Button onClick={() => void submit()} disabled={busy || (token === 'NIM' && !nimAddress)}>
             {busy ? 'Creating…' : 'Create circle'}
           </Button>
           <Button variant="secondary" onClick={onCancel}>
@@ -319,6 +379,8 @@ function JoinForm({ onDone, onCancel }: { onDone: () => Promise<void>; onCancel:
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [needsNim, setNeedsNim] = useState(false)
+  const { linkNim, busy: ajoBusy } = useAjo()
 
   const submit = async () => {
     setBusy(true)
@@ -328,7 +390,9 @@ function JoinForm({ onDone, onCancel }: { onDone: () => Promise<void>; onCancel:
       await onDone()
       onCancel()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not join that circle.')
+      const message = e instanceof Error ? e.message : 'Could not join that circle.'
+      setError(message)
+      setNeedsNim(/Nimiq address/.test(message))
     } finally {
       setBusy(false)
     }
@@ -350,6 +414,17 @@ function JoinForm({ onDone, onCancel }: { onDone: () => Promise<void>; onCancel:
           />
         </Field>
         {error && <Notice>{error}</Notice>}
+        {needsNim && (
+          <button
+            type="button"
+            onClick={() => void linkNim().then((ok) => ok && setNeedsNim(false))}
+            disabled={ajoBusy === 'nim'}
+            className="flex items-center justify-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm text-ink disabled:opacity-50"
+          >
+            <Link2 className="h-4 w-4" />
+            {ajoBusy === 'nim' ? 'Linking…' : 'Link Nimiq address, then join'}
+          </button>
+        )}
         <div className="flex flex-col gap-2">
           <Button onClick={() => void submit()} disabled={busy || code.length < 6}>
             {busy ? 'Joining…' : 'Join circle'}

@@ -1,5 +1,6 @@
 import { formatUnits } from 'viem'
 import { USDT } from './chain'
+import { formatNim } from './nim-rpc'
 
 /** Raw on-chain units to something a person reads. 50000000 -> "50.00". */
 export function formatUsdt(raw: string | bigint): string {
@@ -34,4 +35,19 @@ export function relativeDays(iso: string): string {
   if (days === 1) return 'tomorrow'
   if (days === -1) return 'yesterday'
   return days > 0 ? `in ${days} days` : `${Math.abs(days)} days ago`
+}
+
+export type Token = 'USDT_POLYGON' | 'NIM'
+
+export function tokenSymbol(token: Token): string {
+  return token === 'NIM' ? 'NIM' : 'USDT'
+}
+
+/** Raw units to a readable amount, in whichever unit the circle uses. */
+export function formatContribution(raw: string | bigint, token: Token): string {
+  if (token === 'NIM') {
+    const value = Number(formatNim(BigInt(raw)))
+    return value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 5 })
+  }
+  return formatUsdt(raw)
 }

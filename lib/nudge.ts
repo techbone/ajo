@@ -27,7 +27,7 @@ export function buildNudgeMessage(params: {
       : `${outstanding.length} people`
 
   return [
-    `${circleName}: ${who} still ${outstanding.length === 1 ? 'owes' : 'owe'} ${amount} USDT`,
+    `${circleName}: ${who} still ${outstanding.length === 1 ? 'owes' : 'owe'} ${amount}`,
     `to ${shortAddress(recipientAddress)}, due ${dueLabel}.`,
     '',
     `Pay here: ${url}`,

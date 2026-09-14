@@ -5,11 +5,12 @@ import { AlertTriangle, CalendarClock, Check, Clock, ExternalLink, Share2 } from
 import { useAjo } from './ajo-provider'
 import { Card, Notice, Pill } from './ui'
 import { recordContribution, recheckRound, type CircleDetail } from '@/lib/api-client'
-import { MIN_GAS_POL, POLYGON, USDT } from '@/lib/chain'
-import { formatUsdt, relativeDays, shortAddress } from '@/lib/format'
+import { MIN_GAS_POL, POLYGON } from '@/lib/chain'
+import { formatContribution, relativeDays, shortAddress, tokenSymbol } from '@/lib/format'
 import { buildNudgeMessage, shareNudge } from '@/lib/nudge'
 import { urgencyOf } from '@/lib/urgency'
-import { describePayError, sendContribution } from '@/lib/pay'
+import { describePayError, sendContribution, sendNimContribution } from '@/lib/pay'
+import { NIM } from '@/lib/nim-rpc'
 import { getProvider } from '@/lib/wallet'
 
 /**
@@ -113,7 +114,21 @@ export function RoundView({ data, onPaid }: { data: CircleDetail; onPaid: () => 
   const youReceive = round.recipientAddress === data.you
 
   const urgency = urgencyOf(round.dueAt)
-  const gasShort = pol !== null && Number(pol) < MIN_GAS_POL
+  const token = data.circle.token
+  const isNim = token === 'NIM'
+  const symbol = tokenSymbol(token)
+  const fmt = (raw: string | bigint) => formatContribution(raw, token)
+  const explorerTx = (hash: string) =>
+    isNim ? `${NIM.explorer}/#${hash}` : `${POLYGON.explorer}/tx/${hash}`
+
+  // NIM fees are chosen by Nimiq Pay and usually zero; the gas gate is a
+  // Polygon concern.
+  const gasShort = !isNim && pol !== null && Number(pol) < MIN_GAS_POL
+
+  // For a NIM circle, payment goes to the recipient's linked Nimiq address.
+  const recipientNim = isNim
+    ? (data.members.find((m) => m.address === round.recipientAddress)?.nimAddress ?? null)
+    : null
 
   /**
    * A hash on an unconfirmed contribution means money is already on its way.
@@ -127,10 +142,9 @@ export function RoundView({ data, onPaid }: { data: CircleDetail; onPaid: () => 
     Boolean(mine) &&
     mine?.status !== 'confirmed' &&
     !awaitingConfirmation &&
-    Boolean(walletAddress) &&
-    walletAddress === session &&
-    !walletMismatch &&
-    !gasShort
+    (isNim
+      ? Boolean(recipientNim)
+      : Boolean(walletAddress) && walletAddress === session && !walletMismatch && !gasShort)
 
   const nudge = async () => {
     setNudgeNotice(null)
@@ -138,7 +152,7 @@ export function RoundView({ data, onPaid }: { data: CircleDetail; onPaid: () => 
     try {
       const message = buildNudgeMessage({
         circleName: data.circle.name,
-        amount: formatUsdt(data.circle.contributionAmount),
+        amount: `${fmt(data.circle.contributionAmount)} ${symbol}`,
         recipientAddress: round.recipientAddress,
         dueAt: round.dueAt,
         outstanding: unpaidMembers,
@@ -156,18 +170,21 @@ export function RoundView({ data, onPaid }: { data: CircleDetail; onPaid: () => 
   }
 
   const pay = async () => {
+    if (!mine) return
     const provider = getProvider()
-    if (!provider || !mine || !walletAddress) return
+    if (!isNim && (!provider || !walletAddress)) return
 
     setError(null)
     setBusy(true)
     try {
-      const txHash = await sendContribution({
-        provider,
-        from: walletAddress,
-        to: mine.toAddress,
-        amount: BigInt(mine.amount),
-      })
+      const txHash = isNim
+        ? await sendNimContribution({ to: recipientNim as string, amountLuna: BigInt(mine.amount) })
+        : await sendContribution({
+            provider: provider as NonNullable<typeof provider>,
+            from: walletAddress as string,
+            to: mine.toAddress,
+            amount: BigInt(mine.amount),
+          })
 
       const result = await recordContribution(round.id, txHash)
       setPending(result.status === 'pending')
@@ -189,7 +206,7 @@ export function RoundView({ data, onPaid }: { data: CircleDetail; onPaid: () => 
             Round {round.index} of {data.rounds.length}
           </p>
           <p className="mt-1 text-3xl font-bold tabular-nums">
-            {formatUsdt(pot)} <span className="text-base font-medium text-muted">{USDT.symbol}</span>
+            {fmt(pot)} <span className="text-base font-medium text-muted">{symbol}</span>
           </p>
           <p className="mt-1 text-sm text-muted">
             {youReceive ? (
@@ -260,11 +277,11 @@ export function RoundView({ data, onPaid }: { data: CircleDetail; onPaid: () => 
                 paid
                 {c.txHash && (
                   <a
-                    href={`${POLYGON.explorer}/tx/${c.txHash}`}
+                    href={explorerTx(c.txHash)}
                     target="_blank"
                     rel="noreferrer"
                     className="text-muted"
-                    aria-label="View on Polygonscan"
+                    aria-label={isNim ? 'View on Nimiq Watch' : 'View on Polygonscan'}
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
                   </a>
@@ -295,6 +312,15 @@ export function RoundView({ data, onPaid }: { data: CircleDetail; onPaid: () => 
         </p>
       )}
 
+      {isNim && !recipientNim && mine?.status !== 'confirmed' && (
+        <div className="mt-4 rounded-lg border border-border bg-warn-bg px-4 py-3 text-sm">
+          <p className="font-medium text-warn">The recipient hasn’t linked a Nimiq address</p>
+          <p className="mt-1 text-muted">
+            There’s nowhere to send their payout yet. Once they link one in Ajo, you can pay.
+          </p>
+        </div>
+      )}
+
       {gasShort && mine?.status !== 'confirmed' && (
         <div className="mt-4 rounded-lg border border-border bg-warn-bg px-4 py-3 text-sm">
           <p className="font-medium text-warn">
@@ -316,7 +342,7 @@ export function RoundView({ data, onPaid }: { data: CircleDetail; onPaid: () => 
         >
           {busy
             ? 'Confirm in your wallet…'
-            : `Pay ${formatUsdt(mine.amount)} ${USDT.symbol}`}
+            : `Pay ${fmt(mine.amount)} ${symbol}`}
         </button>
       )}
 

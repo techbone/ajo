@@ -47,6 +47,10 @@ export async function sendContribution(params: {
 export function describePayError(error: unknown): string {
   if (isUserRejection(error)) return 'Payment cancelled. Nothing was sent.'
   if (error instanceof Error) {
+    // The Nimiq provider's rejection, by name rather than EIP-1193 code.
+    if (error.name === 'PermissionDeniedError' || /PermissionDenied/.test(error.message)) {
+      return 'Payment cancelled. Nothing was sent.'
+    }
     if (/insufficient funds/i.test(error.message)) {
       return `Not enough ${POLYGON.nativeSymbol} to cover the network fee.`
     }
@@ -56,4 +60,28 @@ export function describePayError(error: unknown): string {
     return error.message
   }
   return 'The payment could not be sent.'
+}
+
+/**
+ * Sending a NIM contribution. Nimiq Pay picks the fee itself (zero where it
+ * can), and the recipient is just the recipient — no contract in the way.
+ */
+export async function sendNimContribution(params: {
+  to: string
+  amountLuna: bigint
+}): Promise<string> {
+  const { init } = await import('@nimiq/mini-app-sdk')
+  const nimiq = await init({ timeout: 5000 })
+
+  const result = await nimiq.sendBasicTransaction({
+    recipient: params.to,
+    value: Number(params.amountLuna),
+  })
+
+  // The SDK resolves an ErrorResponse rather than throwing for some failures.
+  if (typeof result !== 'string') {
+    const message = (result as { message?: unknown })?.message
+    throw new Error(typeof message === 'string' ? message : 'The NIM payment was not sent.')
+  }
+  return result
 }

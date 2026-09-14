@@ -266,11 +266,16 @@ export async function getCircleForMember(circleId: string, address: string) {
     .limit(1)
   if (!circle) throw new CircleError('Circle not found.', 404)
 
-  const members = await db
-    .select()
-    .from(schema.members)
-    .where(eq(schema.members.circleId, circleId))
-    .orderBy(asc(schema.members.joinedAt))
+  // Each member's linked Nimiq address rides along: a NIM circle's pay button
+  // needs the recipient's, and the member list shows who still has to link.
+  const members = (
+    await db
+      .select({ member: schema.members, nimAddress: schema.users.nimAddress })
+      .from(schema.members)
+      .leftJoin(schema.users, eq(schema.users.address, schema.members.address))
+      .where(eq(schema.members.circleId, circleId))
+      .orderBy(asc(schema.members.joinedAt))
+  ).map((r) => ({ ...r.member, nimAddress: r.nimAddress ?? null }))
 
   if (!members.some((m) => m.address === address)) {
     throw new CircleError('You are not a member of this circle.', 403)

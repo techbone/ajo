@@ -12,7 +12,8 @@ import { getCircle, lockCircle, type CircleDetail } from '@/lib/api-client'
 import { urgencyOf } from '@/lib/urgency'
 import { POLYGON } from '@/lib/chain'
 import { useLiveCircle } from '@/lib/use-live'
-import { formatDate, formatUsdt, frequencyLabel, relativeDays, shortAddress } from '@/lib/format'
+import { formatContribution, formatDate, frequencyLabel, relativeDays, shortAddress, tokenSymbol } from '@/lib/format'
+import { NIM } from '@/lib/nim-rpc'
 
 export default function CirclePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -59,7 +60,11 @@ function CircleView({ id }: { id: string }) {
 
   const { circle, members, rounds, contributions, you } = data
   const isCreator = circle.creatorAddress === you
-  const pot = Number(formatUsdt(circle.contributionAmount).replace(/,/g, '')) * (members.length - 1)
+  const symbol = tokenSymbol(circle.token)
+  const isNim = circle.token === 'NIM'
+  const pot = Number(formatContribution(circle.contributionAmount, circle.token).replace(/,/g, '')) * (members.length - 1)
+  const explorerTx = (hash: string) =>
+    isNim ? `${NIM.explorer}/#${hash}` : `${POLYGON.explorer}/tx/${hash}`
 
   const start = async () => {
     setBusy(true)
@@ -86,7 +91,8 @@ function CircleView({ id }: { id: string }) {
           </Pill>
         </div>
         <p className="mt-1 text-sm text-muted">
-          {formatUsdt(circle.contributionAmount)} USDT {frequencyLabel(circle.frequency)} ·{' '}
+          {formatContribution(circle.contributionAmount, circle.token)} {symbol}{' '}
+          {frequencyLabel(circle.frequency)} ·{' '}
           {members.length} of {circle.size} joined
         </p>
       </div>
@@ -110,7 +116,8 @@ function CircleView({ id }: { id: string }) {
       <Card>
         <p className="text-xs uppercase tracking-widest text-faint">Each round pays out</p>
         <p className="mt-1 text-3xl font-bold tabular-nums">
-          {pot.toLocaleString('en-US')} <span className="text-base font-medium text-muted">USDT</span>
+          {pot.toLocaleString('en-US', { maximumFractionDigits: 5 })}{' '}
+          <span className="text-base font-medium text-muted">{symbol}</span>
         </p>
         <p className="mt-2 text-sm text-muted">
           Everyone except that round&rsquo;s recipient contributes, so each member pays{' '}
@@ -137,6 +144,9 @@ function CircleView({ id }: { id: string }) {
                 <span className="font-mono text-sm">{shortAddress(m.address)}</span>
               </div>
               <div className="flex items-center gap-2">
+                {isNim && !m.nimAddress && circle.status === 'forming' && (
+                  <Pill tone="warn">no NIM address</Pill>
+                )}
                 {m.address === you && <Pill tone="accent">You</Pill>}
                 {m.address === circle.creatorAddress && <Pill>Creator</Pill>}
               </div>
@@ -203,12 +213,12 @@ function CircleView({ id }: { id: string }) {
                 </div>
                 {yourRow && (
                   <a
-                    href={`${POLYGON.explorer}/tx/${yourRow.txHash}`}
+                    href={explorerTx(yourRow.txHash as string)}
                     target="_blank"
                     rel="noreferrer"
                     className="mt-2 flex items-center gap-1.5 text-xs text-muted underline underline-offset-2"
                   >
-                    View your payment on Polygonscan
+                    View your payment on {isNim ? 'Nimiq Watch' : 'Polygonscan'}
                     <ExternalLink className="h-3 w-3" />
                   </a>
                 )}

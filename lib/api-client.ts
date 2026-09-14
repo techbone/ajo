@@ -22,6 +22,8 @@ export interface MemberDto {
   payoutPosition: number | null
   status: 'active' | 'defaulted' | 'left'
   joinedAt: string
+  /** Linked Nimiq address, for circles that run on NIM. */
+  nimAddress: string | null
 }
 
 export interface RoundDto {
@@ -69,6 +71,7 @@ export async function createCircle(input: {
   amount: string
   frequency: CircleDto['frequency']
   size: number
+  token?: CircleDto['token']
 }): Promise<CircleDto> {
   const res = await fetch('/api/circles', {
     method: 'POST',

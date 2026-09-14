@@ -9,7 +9,8 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { fetchBalances, fetchSession, signIn, signOut } from '@/lib/auth-client'
+import { fetchBalances, fetchNimAddress, fetchSession, linkNimAddress, signIn, signOut } from '@/lib/auth-client'
+import { connectNimiq } from '@/lib/nimiq'
 import { POLYGON } from '@/lib/chain'
 import {
   getChainId,
@@ -61,7 +62,11 @@ interface AjoState {
 
   usdt: string | null
   pol: string | null
-  busy: 'connect' | 'signin' | null
+  /** NIM balance — only once a Nimiq address is linked. */
+  nim: string | null
+  /** The Nimiq address linked to this account, for circles that run on NIM. */
+  nimAddress: string | null
+  busy: 'connect' | 'signin' | 'nim' | null
   notice: string | null
 
   connect: (wallet?: DiscoveredWallet) => Promise<void>
@@ -72,6 +77,8 @@ interface AjoState {
   ensureWallet: () => Promise<boolean>
   leave: () => Promise<void>
   refresh: () => Promise<void>
+  /** Ask Nimiq Pay for the member's Nimiq address and attach it to the account. */
+  linkNim: () => Promise<string | null>
   clearNotice: () => void
 }
 
@@ -92,7 +99,9 @@ export function AjoProvider({ children }: { children: ReactNode }) {
   const [chainId, setChainId] = useState<string | null>(null)
   const [usdt, setUsdt] = useState<string | null>(null)
   const [pol, setPol] = useState<string | null>(null)
-  const [busy, setBusy] = useState<'connect' | 'signin' | null>(null)
+  const [nim, setNim] = useState<string | null>(null)
+  const [nimAddress, setNimAddress] = useState<string | null>(null)
+  const [busy, setBusy] = useState<'connect' | 'signin' | 'nim' | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [wallets, setWallets] = useState<DiscoveredWallet[]>([])
   const [activeWallet, setActive] = useState<DiscoveredWallet | null>(null)
@@ -155,14 +164,48 @@ export function AjoProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     const target = session ?? walletAddress
     if (!target) return
-    const { usdt: u, pol: p } = await fetchBalances(target)
+    const { usdt: u, pol: p, nim: n } = await fetchBalances(target, nimAddress)
     setUsdt(u)
     setPol(p)
-  }, [session, walletAddress])
+    setNim(n)
+  }, [session, walletAddress, nimAddress])
 
   useEffect(() => {
     if (session) void refresh()
   }, [session, refresh])
+
+  // The linked Nimiq address lives on the account; load it with the session.
+  useEffect(() => {
+    if (!session) {
+      setNimAddress(null)
+      setNim(null)
+      return
+    }
+    void fetchNimAddress().then(setNimAddress)
+  }, [session])
+
+  const linkNim = useCallback(async (): Promise<string | null> => {
+    if (!session) return null
+    setNotice(null)
+    setBusy('nim')
+    try {
+      // listAccounts() raises Nimiq Pay's own consent dialog — this is the one
+      // place it is asked for, and only because the person tapped to link.
+      const ctx = await connectNimiq()
+      if (!ctx?.address) {
+        setNotice('Could not read your Nimiq address. Open Ajo inside Nimiq Pay and try again.')
+        return null
+      }
+      const linked = await linkNimAddress(ctx.address)
+      setNimAddress(linked)
+      return linked
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not link your Nimiq address.')
+      return null
+    } finally {
+      setBusy(null)
+    }
+  }, [session])
 
   const connect = useCallback(async (wallet?: DiscoveredWallet) => {
     const chosen = wallet ?? getActiveWallet() ?? undefined
@@ -316,6 +359,8 @@ export function AjoProvider({ children }: { children: ReactNode }) {
       canTransact: Boolean(session) && walletConnected && !walletMismatch && onPolygon,
       usdt,
       pol,
+      nim,
+      nimAddress,
       busy,
       notice,
       connect,
@@ -325,11 +370,12 @@ export function AjoProvider({ children }: { children: ReactNode }) {
       ensureWallet,
       leave,
       refresh,
+      linkNim,
       clearNotice: () => setNotice(null),
     }),
     [ready, hasProvider, insideNimiqPay, session, walletAddress, chainId, wallets, activeWallet, onPolygon,
-     walletConnected, walletMismatch, usdt, pol, busy, notice,
-     connect, disconnect, start, authenticate, ensureWallet, leave, refresh],
+     walletConnected, walletMismatch, usdt, pol, nim, nimAddress, busy, notice,
+     connect, disconnect, start, authenticate, ensureWallet, leave, refresh, linkNim],
   )
 
   return <AjoContext.Provider value={value}>{children}</AjoContext.Provider>
