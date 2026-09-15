@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { WalletBanner } from '@/components/account-bar'
 import { AppShell } from '@/components/app-shell'
 import { useAjo } from '@/components/ajo-provider'
-import { Button, Card, Field, Notice, Pill, inputClass } from '@/components/ui'
+import { Button, Card, Field, Notice, Pill, TokenChip, inputClass } from '@/components/ui'
 import { WalletGate } from '@/components/wallet-gate'
 import { createCircle, joinCircle, listCircles, type CircleDto } from '@/lib/api-client'
 import { Link2 } from 'lucide-react'
@@ -223,8 +223,11 @@ function CircleRow({ circle }: { circle: CircleDto }) {
     <Link href={`/circles/${circle.id}`} className="block">
       <Card>
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="font-semibold">{circle.name}</p>
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 font-semibold">
+              <span className="truncate">{circle.name}</span>
+              <TokenChip token={circle.token} />
+            </p>
             <p className="mt-0.5 text-sm text-muted">
               {formatContribution(circle.contributionAmount, circle.token)} {tokenSymbol(circle.token)}{' '}
               {frequencyLabel(circle.frequency)}

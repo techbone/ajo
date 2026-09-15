@@ -77,3 +77,22 @@ export function Pill({ children, tone = 'muted' }: { children: ReactNode; tone?:
     </span>
   )
 }
+
+/**
+ * Which rail a circle runs on. Two rails means every circle must say which one
+ * at a glance — a member holding USDT shouldn't have to open a NIM circle to
+ * find out they can't pay into it.
+ */
+export function TokenChip({ token }: { token: 'USDT_POLYGON' | 'NIM' }) {
+  const nim = token === 'NIM'
+  return (
+    <span
+      className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wider ${
+        nim ? 'bg-accent/15 text-accent' : 'bg-surface-2 text-muted'
+      }`}
+      title={nim ? 'Contributions in NIM on the Nimiq network' : 'Contributions in USDT on Polygon'}
+    >
+      {nim ? 'NIM' : 'USDT'}
+    </span>
+  )
+}

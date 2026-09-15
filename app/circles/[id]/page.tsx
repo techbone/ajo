@@ -6,7 +6,7 @@ import { ExternalLink } from 'lucide-react'
 import { WalletBanner } from '@/components/account-bar'
 import { AppShell } from '@/components/app-shell'
 import { RoundView } from '@/components/round-view'
-import { Button, Card, Notice, Pill } from '@/components/ui'
+import { Button, Card, Notice, Pill, TokenChip } from '@/components/ui'
 import { WalletGate } from '@/components/wallet-gate'
 import { getCircle, lockCircle, type CircleDetail } from '@/lib/api-client'
 import { urgencyOf } from '@/lib/urgency'
@@ -85,7 +85,10 @@ function CircleView({ id }: { id: string }) {
 
       <div>
         <div className="flex items-start justify-between gap-3">
-          <h1 className="text-2xl font-bold tracking-tight">{circle.name}</h1>
+          <h1 className="flex min-w-0 items-center gap-2.5 text-2xl font-bold tracking-tight">
+            <span className="truncate">{circle.name}</span>
+            <TokenChip token={circle.token} />
+          </h1>
           <Pill tone={circle.status === 'active' ? 'good' : 'muted'}>
             {circle.status === 'forming' ? 'Forming' : circle.status}
           </Pill>
